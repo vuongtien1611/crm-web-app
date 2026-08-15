@@ -1,0 +1,20 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Log and Temporary Files
+*.log
+*.tmp
+*.bak
+
+# Temporary Scripts
+organize.py
