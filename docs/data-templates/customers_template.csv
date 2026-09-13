@@ -1,0 +1,4 @@
+customer_code,company_name,tax_id,contact_person,email,phone,address,city
+CUST-001,Cong Ty TNHH Cong Nghe ABC,0101234567,Nguyen Van Giam Doc,contact@abc.vn,0243123456,123 Pho Hue,Ha Noi
+CUST-002,Cong Ty Co Phan Thuong Mai XYZ,0309876543,Tran Thi Quan Ly,info@xyz.com.vn,0283987654,456 Le Loi,TP Ho Chi Minh
+CUST-003,Tap Doan Bat Dong San DEF,0108765432,Le Van Dau Tu,contact@defgroup.vn,0243876543,789 Kim Ma,Ha Noi

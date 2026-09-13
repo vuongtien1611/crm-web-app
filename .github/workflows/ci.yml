@@ -1,0 +1,111 @@
+name: CRM CI - Build & Test Gate
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - staging
+  pull_request:
+    branches:
+      - main
+      - master
+      - staging
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build, Lint & Canonical E2E Test Suite
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_secret_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+          run_install: false
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Monorepo Build (TypeScript Verification)
+        run: pnpm build
+
+      - name: Apply Database Migrations (Safe Runner Verification)
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_NAME: crm_db
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres_secret_dev
+        run: pnpm db:migrate
+
+      - name: Run Auth Integration Tests
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_NAME: crm_db
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres_secret_dev
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: pnpm --filter api test:auth
+
+      - name: Run KPI Integration Tests
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_NAME: crm_db
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres_secret_dev
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: pnpm --filter api test:kpi
+
+      - name: Run Canonical Phase Q E2E & Concurrency Suite
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_NAME: crm_db
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres_secret_dev
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: pnpm --filter api test:phase-q-e2e

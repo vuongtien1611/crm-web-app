@@ -1,0 +1,220 @@
+name: CRM CD - Production Deployment Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - production
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  contents: read
+  id-token: write # Required for GCP Workload Identity Federation
+
+env:
+  GCP_REGION: asia-southeast1
+  IMAGE_NAME: asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/crm-repo/crm-backend
+
+jobs:
+  # ============================================================================
+  # STEP 1: VERIFY & TEST GATE
+  # ============================================================================
+  verify:
+    name: 1. Automated Test & Build Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+          run_install: false
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Monorepo Build Check
+        run: pnpm build
+
+  # ============================================================================
+  # STEP 2: BUILD DOCKER IMAGE & PUSH TO ARTIFACT REGISTRY
+  # ============================================================================
+  build-and-push:
+    name: 2. Build & Push Production Docker Image
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Compute Image Tag
+        id: meta
+        run: |
+          TAG="${{ github.sha }}"
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Build and Push Docker Image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }} \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            -f Dockerfile .
+          docker push ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
+          docker push ${{ env.IMAGE_NAME }}:latest
+
+  # ============================================================================
+  # STEP 3: RUN SAFE DATABASE MIGRATION
+  # ============================================================================
+  migrate-database:
+    name: 3. Run Non-Destructive Database Migrations
+    needs: [verify, build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Execute Migration Cloud Run Job
+        run: |
+          echo "Executing pre-deploy database migration runner..."
+          gcloud run jobs execute crm-db-migrate-job \
+            --region=${{ env.GCP_REGION }} \
+            --image=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }} \
+            --wait
+
+  # ============================================================================
+  # STEP 4: DEPLOY BACKEND API SERVICE TO CLOUD RUN
+  # ============================================================================
+  deploy-api:
+    name: 4. Deploy Backend API to Cloud Run
+    needs: [build-and-push, migrate-database]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run (API Service)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: crm-api
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
+          flags: >-
+            --port=8080
+            --concurrency=80
+            --timeout=300
+            --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE_CONNECTION_NAME }}
+            --vpc-connector=${{ secrets.GCP_VPC_CONNECTOR }}
+            --set-secrets=DATABASE_URL=crm_database_url:latest,JWT_ACCESS_SECRET=crm_jwt_access_secret:latest,JWT_REFRESH_SECRET=crm_jwt_refresh_secret:latest,CLOUDFLARE_R2_ACCESS_KEY_ID=crm_r2_access_key:latest,CLOUDFLARE_R2_SECRET_ACCESS_KEY=crm_r2_secret_key:latest
+
+  # ============================================================================
+  # STEP 5: DEPLOY BACKGROUND WORKER SERVICE TO CLOUD RUN
+  # ============================================================================
+  deploy-worker:
+    name: 5. Deploy Background Worker to Cloud Run
+    needs: [build-and-push, migrate-database, deploy-api]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run (Worker Service)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: crm-worker
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
+          args: 'node,apps/api/dist/src/worker.main.js'
+          flags: >-
+            --min-instances=1
+            --no-cpu-throttling
+            --concurrency=10
+            --timeout=900
+            --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE_CONNECTION_NAME }}
+            --vpc-connector=${{ secrets.GCP_VPC_CONNECTOR }}
+            --set-env-vars=WORKER_MODE=true
+            --set-secrets=DATABASE_URL=crm_database_url:latest,REDIS_HOST=crm_redis_host:latest
+
+  # ============================================================================
+  # STEP 6: BUILD & DEPLOY FRONTEND TO CLOUDFLARE PAGES
+  # ============================================================================
+  deploy-frontend:
+    name: 6. Deploy Frontend to Cloudflare Pages
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+          run_install: false
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Web Application
+        env:
+          VITE_API_URL: ${{ secrets.PRODUCTION_API_BASE_URL }}
+        run: pnpm --filter web build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: 'crm-web-app'
+          directory: 'apps/web/dist'
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

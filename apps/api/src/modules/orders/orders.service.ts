@@ -1,0 +1,942 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { KyselyService } from '../../database/kysely.service';
+import { CreateOrderItemDto } from './dto/create-order-item.dto';
+import { UpdateOrderItemRequirementsDto } from './dto/update-order-item-requirements.dto';
+import { RequestMoreInfoDto } from './dto/request-more-info.dto';
+import { RejectOrderDto } from './dto/reject-order.dto';
+import { CancelOrderDto } from './dto/cancel-order.dto';
+import { CreateChangeRequestDto } from './dto/create-change-request.dto';
+import { sql } from 'kysely';
+import { NotificationsService } from '../notifications/notifications.service';
+
+export interface FindOrdersFilter {
+  page?: number;
+  limit?: number;
+  q?: string;
+  workflowStatus?: string;
+  accountId?: string;
+  closingSaleIdOnly?: string; // Object-level authorization constraint
+  closingSaleIdIn?: string[]; // Team-scope authorization constraint
+}
+
+@Injectable()
+export class OrdersService {
+  constructor(
+    private readonly kysely: KyselyService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  // --------------------------------------------------
+  // AUDIT LOG HELPER
+  // --------------------------------------------------
+  private async logAudit(
+    trx: any,
+    action: string,
+    entityType: string,
+    entityId: string | number,
+    actorEmployeeId?: string | number | null,
+    payloadBefore?: any,
+    payloadAfter?: any,
+  ) {
+    await trx
+      .insertInto('audit_logs')
+      .values({
+        actor_employee_id: actorEmployeeId ? (actorEmployeeId as any) : null,
+        actor_type: 'USER',
+        action,
+        entity_type: entityType,
+        entity_id: entityId as any,
+        payload_before_sanitized: payloadBefore ? JSON.stringify(payloadBefore) : null,
+        payload_after_sanitized: payloadAfter ? JSON.stringify(payloadAfter) : null,
+      })
+      .execute();
+  }
+
+  // --------------------------------------------------
+  // ORDER WORKFLOW ACTIONS
+  // --------------------------------------------------
+
+  async submitOrder(id: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (order.workflow_status !== 'DRAFT') {
+        throw new BadRequestException(`Only DRAFT orders can be submitted (current: ${order.workflow_status})`);
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set({
+          workflow_status: 'PENDING_APPROVAL',
+          updated_at: new Date(),
+        })
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_SUBMIT', 'orders', order.id, actorEmployeeId, order, updatedOrder);
+
+      await this.notificationsService.notifyRoles(
+        ['BOSS', 'ADMIN'],
+        {
+          eventType: 'ORDER_PENDING_APPROVAL',
+          title: `Đơn hàng #${id} chờ phê duyệt`,
+          content: `Đơn hàng #${id} đã được gửi và đang chờ Boss/Admin phê duyệt`,
+          deepLinkUrl: `/orders/${id}`,
+          entityType: 'orders',
+          entityId: id,
+        },
+        trx,
+      );
+
+      return updatedOrder;
+    });
+  }
+
+  async approveOrder(id: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (order.workflow_status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL orders can be approved (current: ${order.workflow_status})`);
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set({
+          workflow_status: 'APPROVED',
+          updated_at: new Date(),
+        })
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_APPROVE', 'orders', order.id, actorEmployeeId, order, updatedOrder);
+      return updatedOrder;
+    });
+  }
+
+  async requestMoreInfo(id: string, dto: RequestMoreInfoDto, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (order.workflow_status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL orders can request more info (current: ${order.workflow_status})`);
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set({
+          workflow_status: 'NEED_MORE_INFO',
+          updated_at: new Date(),
+        })
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_REQUEST_MORE_INFO', 'orders', order.id, actorEmployeeId, { ...order, note: dto.note }, updatedOrder);
+      return updatedOrder;
+    });
+  }
+
+  async resubmitOrder(id: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (order.workflow_status !== 'NEED_MORE_INFO') {
+        throw new BadRequestException(`Only NEED_MORE_INFO orders can be resubmitted (current: ${order.workflow_status})`);
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set({
+          workflow_status: 'PENDING_APPROVAL',
+          updated_at: new Date(),
+        })
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_RESUBMIT', 'orders', order.id, actorEmployeeId, order, updatedOrder);
+
+      await this.notificationsService.notifyRoles(
+        ['BOSS', 'ADMIN'],
+        {
+          eventType: 'ORDER_PENDING_APPROVAL',
+          title: `Đơn hàng #${id} đã được gửi lại chờ duyệt`,
+          content: `Đơn hàng #${id} vừa được cập nhật thông tin và gửi lại chờ phê duyệt`,
+          deepLinkUrl: `/orders/${id}`,
+          entityType: 'orders',
+          entityId: id,
+        },
+        trx,
+      );
+
+      return updatedOrder;
+    });
+  }
+
+  async rejectOrder(id: string, dto: RejectOrderDto, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (order.workflow_status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL orders can be rejected (current: ${order.workflow_status})`);
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set({
+          workflow_status: 'REJECTED',
+          updated_at: new Date(),
+        })
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_REJECT', 'orders', order.id, actorEmployeeId, { ...order, reason: dto.reason }, updatedOrder);
+      return updatedOrder;
+    });
+  }
+
+  async cancelOrder(id: string, dto: CancelOrderDto, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (['COMPLETED', 'REJECTED', 'CANCELLED'].includes(order.workflow_status)) {
+        throw new BadRequestException(`Terminal order [${order.workflow_status}] cannot be cancelled`);
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set({
+          workflow_status: 'CANCELLED',
+          updated_at: new Date(),
+        })
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_CANCEL', 'orders', order.id, actorEmployeeId, { ...order, reason: dto.reason }, updatedOrder);
+      return updatedOrder;
+    });
+  }
+
+  // --------------------------------------------------
+  // ORDER ITEM ACTIONS
+  // --------------------------------------------------
+
+  async addOrderItem(orderId: string, dto: CreateOrderItemDto, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', orderId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${orderId}] not found`);
+      }
+
+      if (['COMPLETED', 'REJECTED', 'CANCELLED'].includes(order.workflow_status)) {
+        throw new BadRequestException(`Cannot add items to a non-active order (${order.workflow_status})`);
+      }
+
+      // Find active service
+      const service = await trx
+        .selectFrom('services')
+        .selectAll()
+        .where('id', '=', dto.serviceId as any)
+        .executeTakeFirst();
+
+      if (!service) {
+        throw new NotFoundException(`Service [${dto.serviceId}] not found`);
+      }
+
+      // Find active requirement template
+      let template = await trx
+        .selectFrom('service_requirement_templates')
+        .selectAll()
+        .where('service_id', '=', service.id)
+        .where('is_active', '=', true)
+        .orderBy('version', 'desc')
+        .executeTakeFirst();
+
+      if (!template) {
+        const [newTemplate] = await trx
+          .insertInto('service_requirement_templates')
+          .values({
+            service_id: service.id,
+            version: 1,
+            template_name: `Template for ${service.name}`,
+            is_active: true,
+          })
+          .returningAll()
+          .execute();
+        template = newTemplate;
+      }
+
+      const originalPrice = dto.originalPrice;
+      const discountAmount = dto.discountAmount || 0;
+      const netServiceValue = originalPrice - discountAmount;
+      const vatAmount = dto.vatAmount || 0;
+
+      // Insert OrderItem
+      const [orderItem] = await trx
+        .insertInto('order_items')
+        .values({
+          order_id: order.id,
+          deal_id: dto.dealId ? (dto.dealId as any) : null,
+          closing_sale_id: dto.closingSaleId as any,
+          service_id: service.id,
+          requirement_template_id: template.id,
+          requirement_template_version: template.version,
+          original_price: originalPrice,
+          discount_amount: discountAmount,
+          net_service_value: netServiceValue,
+          vat_amount: vatAmount,
+          approval_status: 'DRAFT',
+          delivery_status: 'PENDING',
+          payment_status: 'UNPAID',
+        })
+        .returningAll()
+        .execute();
+
+      // Snapshot requirement fields into order_item_requirements
+      const fields = await trx
+        .selectFrom('service_requirement_fields')
+        .selectAll()
+        .where('template_id', '=', template.id)
+        .execute();
+
+      for (const field of fields) {
+        await trx
+          .insertInto('order_item_requirements')
+          .values({
+            order_item_id: orderItem.id,
+            field_id: field.id,
+            field_key_snapshot: field.field_key,
+            label_snapshot: field.field_label,
+            field_type_snapshot: field.field_type,
+            options_snapshot: field.options_json ? JSON.stringify(field.options_json) : null,
+            value_text: null,
+            value_json: null,
+          })
+          .execute();
+      }
+
+      await this.logAudit(trx, 'ORDER_ITEM_ADD', 'order_items', orderItem.id, actorEmployeeId, null, orderItem);
+      return orderItem;
+    });
+  }
+
+  async submitOrderItem(itemId: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] not found`);
+      }
+
+      if (item.approval_status !== 'DRAFT') {
+        throw new BadRequestException(`Only DRAFT order items can be submitted (current: ${item.approval_status})`);
+      }
+
+      const [updatedItem] = await trx
+        .updateTable('order_items')
+        .set({
+          approval_status: 'PENDING_APPROVAL',
+          updated_at: new Date(),
+        })
+        .where('id', '=', item.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_ITEM_SUBMIT', 'order_items', item.id, actorEmployeeId, item, updatedItem);
+      return updatedItem;
+    });
+  }
+
+  async approveOrderItem(itemId: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] not found`);
+      }
+
+      if (item.approval_status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL order items can be approved (current: ${item.approval_status})`);
+      }
+
+      const [updatedItem] = await trx
+        .updateTable('order_items')
+        .set({
+          approval_status: 'APPROVED',
+          updated_at: new Date(),
+        })
+        .where('id', '=', item.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_ITEM_APPROVE', 'order_items', item.id, actorEmployeeId, item, updatedItem);
+      return updatedItem;
+    });
+  }
+
+  async rejectOrderItem(itemId: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] not found`);
+      }
+
+      if (item.approval_status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL order items can be rejected (current: ${item.approval_status})`);
+      }
+
+      const [updatedItem] = await trx
+        .updateTable('order_items')
+        .set({
+          approval_status: 'REJECTED',
+          updated_at: new Date(),
+        })
+        .where('id', '=', item.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_ITEM_REJECT', 'order_items', item.id, actorEmployeeId, item, updatedItem);
+      return updatedItem;
+    });
+  }
+
+  async cancelOrderItem(itemId: string, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] not found`);
+      }
+
+      const [updatedItem] = await trx
+        .updateTable('order_items')
+        .set({
+          approval_status: 'CANCELLED',
+          delivery_status: 'CANCELLED',
+          updated_at: new Date(),
+        })
+        .where('id', '=', item.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_ITEM_CANCEL', 'order_items', item.id, actorEmployeeId, item, updatedItem);
+      return updatedItem;
+    });
+  }
+
+  // --------------------------------------------------
+  // REQUIREMENT VALUES UPDATE
+  // --------------------------------------------------
+
+  async updateOrderItemRequirements(
+    itemId: string,
+    dto: UpdateOrderItemRequirementsDto,
+    actorEmployeeId?: string,
+  ) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] not found`);
+      }
+
+      if (item.approval_status === 'APPROVED') {
+        throw new BadRequestException('Approved OrderItem requirements cannot be overwritten directly. Must use Change Request.');
+      }
+
+      for (const req of dto.requirements) {
+        await trx
+          .updateTable('order_item_requirements')
+          .set({
+            value_text: req.valueText || null,
+            value_json: req.valueJson ? JSON.stringify(req.valueJson) : null,
+          })
+          .where('order_item_id', '=', item.id)
+          .where('field_key_snapshot', '=', req.fieldKey)
+          .execute();
+      }
+
+      await this.logAudit(trx, 'ORDER_ITEM_REQUIREMENTS_UPDATE', 'order_items', item.id, actorEmployeeId);
+      return { success: true, message: 'Requirements updated successfully' };
+    });
+  }
+
+  // --------------------------------------------------
+  // CHANGE REQUEST ACTIONS
+  // --------------------------------------------------
+
+  async createChangeRequest(
+    itemId: string,
+    dto: CreateChangeRequestDto,
+    requestedByEmployeeId: string,
+  ) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] not found`);
+      }
+
+      if (item.approval_status !== 'APPROVED') {
+        throw new BadRequestException('Change requests can only be created for APPROVED OrderItems');
+      }
+
+      const [changeRequest] = await trx
+        .insertInto('change_requests')
+        .values({
+          order_item_id: item.id,
+          requested_by_employee_id: requestedByEmployeeId as any,
+          change_type: dto.changeType,
+          description: dto.description,
+          amount_delta: dto.amountDelta || 0,
+          days_delta: dto.daysDelta || 0,
+          status: 'PENDING_APPROVAL',
+        })
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'CHANGE_REQUEST_CREATE', 'change_requests', changeRequest.id, requestedByEmployeeId, null, changeRequest);
+      return changeRequest;
+    });
+  }
+
+  async approveChangeRequest(changeRequestId: string, approvedByEmployeeId: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const cr = await trx
+        .selectFrom('change_requests')
+        .selectAll()
+        .where('id', '=', changeRequestId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!cr) {
+        throw new NotFoundException(`ChangeRequest [${changeRequestId}] not found`);
+      }
+
+      if (cr.status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL ChangeRequests can be approved (current: ${cr.status})`);
+      }
+
+      const [updatedCr] = await trx
+        .updateTable('change_requests')
+        .set({
+          status: 'APPROVED',
+          approved_by_employee_id: approvedByEmployeeId as any,
+          approved_at: new Date(),
+        })
+        .where('id', '=', cr.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'CHANGE_REQUEST_APPROVE', 'change_requests', cr.id, approvedByEmployeeId, cr, updatedCr);
+      return updatedCr;
+    });
+  }
+
+  async rejectChangeRequest(changeRequestId: string, actorEmployeeId: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const cr = await trx
+        .selectFrom('change_requests')
+        .selectAll()
+        .where('id', '=', changeRequestId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!cr) {
+        throw new NotFoundException(`ChangeRequest [${changeRequestId}] not found`);
+      }
+
+      if (cr.status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(`Only PENDING_APPROVAL ChangeRequests can be rejected (current: ${cr.status})`);
+      }
+
+      const [updatedCr] = await trx
+        .updateTable('change_requests')
+        .set({
+          status: 'REJECTED',
+        })
+        .where('id', '=', cr.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'CHANGE_REQUEST_REJECT', 'change_requests', cr.id, actorEmployeeId, cr, updatedCr);
+      return updatedCr;
+    });
+  }
+
+  async implementChangeRequest(changeRequestId: string, actorEmployeeId: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const cr = await trx
+        .selectFrom('change_requests')
+        .selectAll()
+        .where('id', '=', changeRequestId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!cr) {
+        throw new NotFoundException(`ChangeRequest [${changeRequestId}] not found`);
+      }
+
+      if (cr.status !== 'APPROVED') {
+        throw new BadRequestException(`Only APPROVED ChangeRequests can be implemented (current: ${cr.status})`);
+      }
+
+      const [updatedCr] = await trx
+        .updateTable('change_requests')
+        .set({
+          status: 'IMPLEMENTED',
+          implemented_at: new Date(),
+        })
+        .where('id', '=', cr.id)
+        .returningAll()
+        .execute();
+
+      // Apply amount_delta to order_items.net_service_value
+      if (cr.amount_delta !== 0) {
+        await trx
+          .updateTable('order_items')
+          .set((eb) => ({
+            net_service_value: eb('net_service_value', '+', cr.amount_delta),
+            updated_at: new Date(),
+          }))
+          .where('id', '=', cr.order_item_id)
+          .execute();
+      }
+
+      await this.logAudit(trx, 'CHANGE_REQUEST_IMPLEMENT', 'change_requests', cr.id, actorEmployeeId, cr, updatedCr);
+      return updatedCr;
+    });
+  }
+
+  // --------------------------------------------------
+  // LISTING & DETAIL QUERIES
+  // --------------------------------------------------
+
+  async findOrders(filter: FindOrdersFilter) {
+    const page = Math.max(1, Number(filter.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(filter.limit) || 10));
+    const offset = (page - 1) * limit;
+
+    let query = this.kysely.db
+      .selectFrom('orders as o')
+      .innerJoin('accounts as a', 'a.id', 'o.account_id')
+      .leftJoin('contacts as c', 'c.id', 'o.primary_contact_id');
+
+    if (filter.workflowStatus) {
+      query = query.where('o.workflow_status', '=', filter.workflowStatus);
+    }
+
+    if (filter.accountId) {
+      query = query.where('o.account_id', '=', filter.accountId as any);
+    }
+
+    if (filter.q) {
+      const searchTerm = `%${filter.q}%`;
+      query = query.where((eb) =>
+        eb.or([
+          eb('o.order_code', 'ilike', searchTerm),
+          eb('a.company_name', 'ilike', searchTerm),
+        ]),
+      );
+    }
+
+    // Team-scope auth filter: SALES_TEAM_LEADER
+    if (filter.closingSaleIdIn && filter.closingSaleIdIn.length > 0) {
+      query = query.where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('order_items as oi')
+            .whereRef('oi.order_id', '=', 'o.id')
+            .where('oi.closing_sale_id', 'in', filter.closingSaleIdIn as any),
+        ),
+      );
+    } else if (filter.closingSaleIdIn && filter.closingSaleIdIn.length === 0) {
+      query = query.where(sql`1 = 0` as any);
+    }
+
+    // Object level auth filter: SALE role
+    if (filter.closingSaleIdOnly) {
+      query = query.where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('order_items as oi')
+            .whereRef('oi.order_id', '=', 'o.id')
+            .where('oi.closing_sale_id', '=', filter.closingSaleIdOnly as any),
+        ),
+      );
+    }
+
+    // Total Count
+    const countResult = await query
+      .select(sql<number>`count(distinct o.id)`.as('total'))
+      .executeTakeFirst();
+    const total = Number(countResult?.total || 0);
+
+    // Paginated Rows
+    const data = await query
+      .select([
+        'o.id',
+        'o.account_id',
+        'a.company_name',
+        'o.primary_contact_id',
+        'c.full_name as primary_contact_name',
+        'o.order_code',
+        'o.workflow_status',
+        'o.created_at',
+        'o.updated_at',
+      ])
+      .orderBy('o.created_at', 'desc')
+      .offset(offset)
+      .limit(limit)
+      .execute();
+
+    // Enrich with item counts and total values
+    const enrichedData = await Promise.all(
+      data.map(async (order) => {
+        const itemsSummary = await this.kysely.db
+          .selectFrom('order_items')
+          .select([
+            sql<number>`count(id)`.as('item_count'),
+            sql<number>`coalesce(sum(net_service_value), 0)`.as('total_net_value'),
+          ])
+          .where('order_id', '=', order.id)
+          .executeTakeFirst();
+
+        return {
+          ...order,
+          itemCount: Number(itemsSummary?.item_count || 0),
+          totalNetValue: Number(itemsSummary?.total_net_value || 0),
+        };
+      }),
+    );
+
+    return {
+      data: enrichedData,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findOrderById(id: string) {
+    const order = await this.kysely.db
+      .selectFrom('orders as o')
+      .innerJoin('accounts as a', 'a.id', 'o.account_id')
+      .leftJoin('contacts as c', 'c.id', 'o.primary_contact_id')
+      .select([
+        'o.id',
+        'o.account_id',
+        'a.company_name',
+        'a.tax_code',
+        'a.phone as account_phone',
+        'a.email as account_email',
+        'o.primary_contact_id',
+        'c.full_name as primary_contact_name',
+        'c.phone as primary_contact_phone',
+        'c.email as primary_contact_email',
+        'o.order_code',
+        'o.workflow_status',
+        'o.created_at',
+        'o.updated_at',
+      ])
+      .where('o.id', '=', id as any)
+      .executeTakeFirst();
+
+    if (!order) {
+      throw new NotFoundException(`Order [${id}] not found`);
+    }
+
+    // Fetch order items
+    const items = await this.kysely.db
+      .selectFrom('order_items as oi')
+      .innerJoin('services as s', 's.id', 'oi.service_id')
+      .innerJoin('employees as closer', 'closer.id', 'oi.closing_sale_id')
+      .leftJoin('deals as d', 'd.id', 'oi.deal_id')
+      .select([
+        'oi.id',
+        'oi.order_id',
+        'oi.deal_id',
+        'd.deal_name',
+        'oi.closing_sale_id',
+        'closer.full_name as closing_sale_name',
+        'closer.employee_code as closing_sale_code',
+        'oi.service_id',
+        's.name as service_name',
+        'oi.requirement_template_id',
+        'oi.requirement_template_version',
+        'oi.original_price',
+        'oi.discount_amount',
+        'oi.net_service_value',
+        'oi.vat_amount',
+        'oi.approval_status',
+        'oi.delivery_status',
+        'oi.payment_status',
+        'oi.created_at',
+        'oi.updated_at',
+      ])
+      .where('oi.order_id', '=', id as any)
+      .orderBy('oi.created_at', 'asc')
+      .execute();
+
+    // Enrich items with requirements and change requests
+    const enrichedItems = await Promise.all(
+      items.map(async (item) => {
+        const requirements = await this.kysely.db
+          .selectFrom('order_item_requirements')
+          .selectAll()
+          .where('order_item_id', '=', item.id)
+          .execute();
+
+        const changeRequests = await this.kysely.db
+          .selectFrom('change_requests as cr')
+          .innerJoin('employees as req_emp', 'req_emp.id', 'cr.requested_by_employee_id')
+          .leftJoin('employees as app_emp', 'app_emp.id', 'cr.approved_by_employee_id')
+          .select([
+            'cr.id',
+            'cr.order_item_id',
+            'cr.change_type',
+            'cr.description',
+            'cr.amount_delta',
+            'cr.days_delta',
+            'cr.status',
+            'req_emp.full_name as requested_by_name',
+            'app_emp.full_name as approved_by_name',
+            'cr.approved_at',
+            'cr.implemented_at',
+            'cr.created_at',
+          ])
+          .where('cr.order_item_id', '=', item.id)
+          .orderBy('cr.created_at', 'desc')
+          .execute();
+
+        return {
+          ...item,
+          requirements,
+          changeRequests,
+        };
+      }),
+    );
+
+    // Audit logs for order
+    const auditLogs = await this.kysely.db
+      .selectFrom('audit_logs as al')
+      .leftJoin('employees as emp', 'emp.id', 'al.actor_employee_id')
+      .select([
+        'al.id',
+        'al.action',
+        'al.entity_type',
+        'al.entity_id',
+        'al.payload_before_sanitized',
+        'al.payload_after_sanitized',
+        'al.created_at',
+        'emp.full_name as actor_name',
+      ])
+      .where('al.entity_type', '=', 'orders')
+      .where('al.entity_id', '=', id as any)
+      .orderBy('al.created_at', 'desc')
+      .execute();
+
+    return {
+      ...order,
+      items: enrichedItems,
+      auditLogs,
+    };
+  }
+}

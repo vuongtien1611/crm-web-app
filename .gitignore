@@ -11,10 +11,28 @@ Thumbs.db
 *.sln
 *.swp
 
+# Build and Dependencies
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Environment and Secret Files
+.env
+.env.local
+.env.*.local
+!.env.example
+cookies.txt
+
 # Log and Temporary Files
 *.log
 *.tmp
 *.bak
+scratch/
+tmp-*.ts
+apps/api/storage/uploads/
+storage/uploads/
 
 # Temporary Scripts
 organize.py
+

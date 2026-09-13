@@ -1,0 +1,21 @@
+{
+  "name": "crm-web-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter \"@crm/*\" build && pnpm --filter api build && pnpm --filter web build",
+    "build:api": "pnpm --filter api build",
+    "build:web": "pnpm --filter web build",
+    "db:init": "docker compose exec -T postgres psql -U postgres -d crm_db -f /database/crm_order_schema.sql && docker compose exec -T postgres psql -U postgres -d crm_db -f /database/crm_seed.sql",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "seed:staging": "pnpm --filter api seed:staging",
+    "test:uat": "pnpm --filter api test:phase-s-uat",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

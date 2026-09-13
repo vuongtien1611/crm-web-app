@@ -1,0 +1,6 @@
+team_code,team_name,department,leader_employee_code,status
+TEAM-SALE-01,Doi Ngu Kinh Doanh Mien Bac,SALES,EMP-002,ACTIVE
+TEAM-SALE-02,Doi Ngu Kinh Doanh Mien Nam,SALES,EMP-008,ACTIVE
+TEAM-DEV-01,Doi Phat Trien Web App,DEV,EMP-004,ACTIVE
+TEAM-DEV-02,Doi Phat Trien Mobile,DEV,EMP-009,ACTIVE
+TEAM-SEO-01,Doi SEO & Content Marketing,SEO,EMP-006,ACTIVE

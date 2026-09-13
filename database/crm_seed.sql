@@ -1,295 +1,793 @@
--- PHẦN 4 - TẠO FILE crm_seed.sql
--- Dữ liệu mẫu (Mock data) cho CRM Database Schema (Demo & Backend Test) - Bản Số Ít
+-- ============================================================================
+-- CRM SYSTEM MASTER & REFERENCE DATA SEED SCRIPT
+-- Target Schema: PostgreSQL DDL Schema V4.2 (crm_order_schema.sql)
+-- Version: V4.5 (Final Convergent & Audited Seed)
+--
+-- Principles:
+-- - Convergent Execution: Safe to re-run multiple times; updates existing master/reference
+--   data to canonical configuration and removes deprecated mappings without creating duplicate rows.
+-- - Zero Demo Business Data: NO fake Orders, Payments, Commissions, or KPI Events.
+-- - Strict Business Flow Alignment: Seeds ONLY Confirmed Business Rules.
+-- - Sale Commission Base & Release Convention:
+--   * NORMAL SERVICE:
+--     - COMMISSION BASE = order_items.net_service_value (after approved discount, pre-VAT).
+--     - RELEASE CONDITION: Customer Acceptance / Completed AND Order Item FULLY_PAID.
+--       -> Status transitions: UNEARNED -> RELEASED.
+--       -> Payment Confirmation alone DOES NOT release normal Sale Commission.
+--          (e.g., Order Item = 10M, Paid = 10M, Customer Acceptance not yet recorded
+--           -> FULLY_PAID = TRUE, but Sale Commission remains UNEARNED until Customer Acceptance).
+--   * RECURRING SERVICE (SEO):
+--     - COMMISSION BASE = service_period.period_net_value.
+--     - RELEASE CONDITION: ServicePeriod ACCEPTED AND ServicePeriod FULLY_PAID
+--       -> Period Sale Commission RELEASED.
+--   * PARTIAL CANCELLATION:
+--     - COMMISSION BASE = settlement.retained_amount.
+--     - RELEASE CONDITION: Boss Settlement Confirmed AND retained_amount > 0
+--       -> RELEASED according to cancellation rules.
+--   * Payment allocations / net_eligible_amount are strictly used for payment eligibility trigger,
+--     Sale KPI cash revenue, Team Leader Override, attribution, and audit source tracing.
+-- - 5 Open Business Rules: Explicitly NOT SEEDED with warning comments.
+-- ============================================================================
 
--- 1. RBAC (Role & Permission)
-INSERT INTO role (id, name, description) VALUES 
-('10000000-0000-0000-0000-000000000001', 'Admin', 'Toàn quyền hệ thống'),
-('10000000-0000-0000-0000-000000000002', 'Sales Manager', 'Quản lý phòng kinh doanh'),
-('10000000-0000-0000-0000-000000000003', 'Sales Rep', 'Nhân viên kinh doanh'),
-('10000000-0000-0000-0000-000000000004', 'Marketing', 'Chuyên viên tiếp thị'),
-('10000000-0000-0000-0000-000000000005', 'Support', 'Hỗ trợ khách hàng');
+-- ============================================================================
+-- 0. DEPRECATED DATA CLEANUP (Convergent Cleanup for Schema Updates)
+-- ============================================================================
+DELETE FROM role_permissions
+WHERE permission_id IN (
+    SELECT id FROM permissions WHERE code = 'PROJECT_UPDATE_PROGRESS'
+);
 
--- 2. USERS (15 Users)
-INSERT INTO "user" (id, email, password_hash, full_name, phone) VALUES 
-('20000000-0000-0000-0000-000000000001', 'admin@crm.local', 'hash', 'Nguyễn Văn Quản Trị', '0900000001'),
-('20000000-0000-0000-0000-000000000002', 'sm1@crm.local', 'hash', 'Trần Minh Đức', '0900000002'),
-('20000000-0000-0000-0000-000000000003', 'sm2@crm.local', 'hash', 'Lê Hoàng Nam', '0900000003'),
-('20000000-0000-0000-0000-000000000004', 'sr1@crm.local', 'hash', 'Phạm Thu Trang', '0900000004'),
-('20000000-0000-0000-0000-000000000005', 'sr2@crm.local', 'hash', 'Hoàng Ngọc Ánh', '0900000005'),
-('20000000-0000-0000-0000-000000000006', 'sr3@crm.local', 'hash', 'Vũ Đức Mạnh', '0900000006'),
-('20000000-0000-0000-0000-000000000007', 'sr4@crm.local', 'hash', 'Đặng Kim Sơn', '0900000007'),
-('20000000-0000-0000-0000-000000000008', 'sr5@crm.local', 'hash', 'Bùi Hải Yến', '0900000008'),
-('20000000-0000-0000-0000-000000000009', 'sr6@crm.local', 'hash', 'Đỗ Thanh Tuấn', '0900000009'),
-('20000000-0000-0000-0000-000000000010', 'sr7@crm.local', 'hash', 'Ngô Bá Khá', '0900000010'),
-('20000000-0000-0000-0000-000000000011', 'sr8@crm.local', 'hash', 'Lý Tự Trọng', '0900000011'),
-('20000000-0000-0000-0000-000000000012', 'mkt1@crm.local', 'hash', 'Chu Vĩnh Toàn', '0900000012'),
-('20000000-0000-0000-0000-000000000013', 'mkt2@crm.local', 'hash', 'Vương Lệ Quyên', '0900000013'),
-('20000000-0000-0000-0000-000000000014', 'sup1@crm.local', 'hash', 'Tạ Bích Hữu', '0900000014'),
-('20000000-0000-0000-0000-000000000015', 'sup2@crm.local', 'hash', 'Tiêu Phong', '0900000015');
+DELETE FROM permissions
+WHERE code = 'PROJECT_UPDATE_PROGRESS';
 
-INSERT INTO user_role (user_id, role_id) VALUES 
-('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001'),
-('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002'),
-('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000003'),
-('20000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000004'),
-('20000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000005');
 
--- 3. TEAMS & MEMBERS
-INSERT INTO team (id, name) VALUES 
-('30000000-0000-0000-0000-000000000001', 'Sales Hà Nội'),
-('30000000-0000-0000-0000-000000000002', 'Sales HCM'),
-('30000000-0000-0000-0000-000000000003', 'Marketing');
+-- ============================================================================
+-- 1. POSITIONS (6 Core Positions)
+-- ============================================================================
+INSERT INTO positions (code, name, description) VALUES
+('BOSS', 'Giám Đốc Điều Hành', 'Ban quản trị tối cao, người duyệt cuối cùng mọi thanh toán, hợp đồng và chính sách'),
+('ACCOUNTANT', 'Kế Toán Trưởng / Kế Toán Viên', 'Phụ trách tạo thanh toán, quản lý hóa đơn và chi phí tài chính'),
+('SALE', 'Chuyên Viên Kinh Doanh', 'Nhân viên tư vấn, tìm kiếm khách hàng và chốt đơn hàng'),
+('SALES_TEAM_LEADER', 'Trưởng Nhóm Kinh Doanh', 'Quản lý nhóm kinh doanh, phân bổ lead và theo dõi tiến độ team'),
+('DEV', 'Lập Trình Viên / Kỹ Thuật Dự Án', 'Chuyên viên kỹ thuật chịu trách nhiệm triển khai và hoàn thành dự án Website/Phần mềm'),
+('SEO', 'Chuyên Viên SEO / Content', 'Chuyên viên tối ưu hóa công cụ tìm kiếm và sản xuất bài viết chuẩn SEO')
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    description = EXCLUDED.description;
 
-INSERT INTO team_member (team_id, user_id) VALUES 
-('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004'),
-('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000005'),
-('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000006'),
-('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000007'),
-('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000012');
 
--- 4. LEAD SOURCES
-INSERT INTO lead_source (id, code, name) VALUES 
-('40000000-0000-0000-0000-000000000001', 'WEBSITE', 'Website'),
-('40000000-0000-0000-0000-000000000002', 'FACEBOOK', 'Facebook'),
-('40000000-0000-0000-0000-000000000003', 'GOOGLE', 'Google Ads'),
-('40000000-0000-0000-0000-000000000004', 'ZALO', 'Zalo OA'),
-('40000000-0000-0000-0000-000000000005', 'REFERRAL', 'Giới thiệu'),
-('40000000-0000-0000-0000-000000000006', 'MANUAL', 'Nhập thủ công');
+-- ============================================================================
+-- 2. ROLES (7 Core Technical Roles)
+-- ============================================================================
+INSERT INTO roles (code, name, description) VALUES
+('ADMIN', 'System Administrator', 'Toàn quyền quản trị hệ thống kỹ thuật và cấu hình phân quyền'),
+('BOSS', 'Executive Director', 'Toàn quyền phê duyệt kinh doanh, tài chính, hoa hồng, lương và nghiệm thu'),
+('ACCOUNTANT', 'Accountant', 'Chuyên viên tài chính kế toán - Tạo thanh toán, hóa đơn và ghi nhận chi phí'),
+('SALE', 'Sales Representative', 'Chuyên viên kinh doanh - Quản lý Lead, Deal, Order và hoạt động bán hàng cá nhân'),
+('SALES_TEAM_LEADER', 'Sales Team Leader', 'Trưởng nhóm kinh doanh - Quản lý phân bổ Lead và báo cáo doanh số nhóm'),
+('DEV_TEAM_LEADER', 'Dev Team Leader', 'Trưởng nhóm kỹ thuật lập trình - Phân công dự án, theo dõi task và tiến độ nhóm'),
+('DEV', 'Software Developer', 'Kỹ thuật viên - Theo dõi và cập nhật tiến độ công việc dự án được phân công'),
+('SEO_TEAM_LEADER', 'SEO Team Leader', 'Trưởng nhóm SEO - Phân công dự án SEO, theo dõi tiến độ và doanh số thực thu nhóm'),
+('SEO', 'SEO Specialist', 'Chuyên viên SEO - Theo dõi và thực hiện công việc dự án SEO được phân công')
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    description = EXCLUDED.description;
 
--- 5. LEAD STATUSES
-INSERT INTO lead_status (id, code, name, is_converted) VALUES 
-('50000000-0000-0000-0000-000000000001', 'NEW', 'Mới', FALSE),
-('50000000-0000-0000-0000-000000000002', 'CONTACTED', 'Đã liên hệ', FALSE),
-('50000000-0000-0000-0000-000000000003', 'QUALIFIED', 'Tiềm năng', FALSE),
-('50000000-0000-0000-0000-000000000004', 'CONVERTED', 'Đã chuyển đổi', TRUE),
-('50000000-0000-0000-0000-000000000005', 'LOST', 'Thất bại', FALSE);
 
--- 6. ACCOUNTS & CONTACTS (12 Doanh nghiệp, 20 Liên hệ)
-INSERT INTO account (id, name, industry, segment, owner_id) VALUES 
-('a0000000-0000-0000-0000-000000000001', 'Công ty Cổ phần Minh Phát', 'IT', 'vip', '20000000-0000-0000-0000-000000000004'),
-('a0000000-0000-0000-0000-000000000002', 'Công ty TNHH Đông Á', 'Finance', 'regular', '20000000-0000-0000-0000-000000000004'),
-('a0000000-0000-0000-0000-000000000003', 'Công ty TNHH Thiết bị Việt', 'Retail', 'potential', '20000000-0000-0000-0000-000000000005'),
-('a0000000-0000-0000-0000-000000000004', 'Công ty Cổ phần Nội thất An Gia', 'Real Estate', 'vip', '20000000-0000-0000-0000-000000000006'),
-('a0000000-0000-0000-0000-000000000005', 'Tập đoàn Hòa Bình', 'Construction', 'vip', '20000000-0000-0000-0000-000000000007'),
-('a0000000-0000-0000-0000-000000000006', 'Công ty TNHH Dược Phẩm Xanh', 'Healthcare', 'regular', '20000000-0000-0000-0000-000000000008'),
-('a0000000-0000-0000-0000-000000000007', 'CTCP Vận tải Biển Đông', 'Logistics', 'potential', '20000000-0000-0000-0000-000000000009'),
-('a0000000-0000-0000-0000-000000000008', 'Công ty May mặc Việt Thành', 'Manufacturing', 'regular', '20000000-0000-0000-0000-000000000010'),
-('a0000000-0000-0000-0000-000000000009', 'Hệ thống Giáo dục Alpha', 'Education', 'vip', '20000000-0000-0000-0000-000000000011'),
-('a0000000-0000-0000-0000-000000000010', 'Công ty Cổ phần Truyền thông Số', 'Media', 'potential', '20000000-0000-0000-0000-000000000004'),
-('a0000000-0000-0000-0000-000000000011', 'Tập đoàn Nông nghiệp Sạch', 'Agriculture', 'vip', '20000000-0000-0000-0000-000000000005'),
-('a0000000-0000-0000-0000-000000000012', 'Công ty TNHH Du lịch Sài Gòn', 'Tourism', 'regular', '20000000-0000-0000-0000-000000000006');
+-- ============================================================================
+-- 3. PERMISSIONS (69 Semantic Capabilities across 26 Functional Modules)
+-- NOTE: PROJECT_UPDATE_PROGRESS is REMOVED as progress_percent is CACHE DERIVED
+-- ============================================================================
+INSERT INTO permissions (code, name, module, description) VALUES
+-- AUTH
+('AUTH_LOGIN', 'Đăng nhập hệ thống', 'AUTH', 'Quyền đăng nhập vào giao diện làm việc'),
+('AUTH_RESET_PASSWORD', 'Đặt lại mật khẩu', 'AUTH', 'Quyền yêu cầu đổi mật khẩu cá nhân'),
 
-INSERT INTO contact (id, account_id, first_name, last_name, email, is_primary) VALUES 
-('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'An', 'Nguyễn Văn', 'an.nguyen@minhphat.com', TRUE),
-('c0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Bình', 'Lê Thế', 'binh.le@minhphat.com', FALSE),
-('c0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002', 'Cường', 'Phạm Quốc', 'cuong.pham@donga.com', TRUE),
-('c0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000003', 'Dương', 'Trần Thùy', 'duong.tran@thietbiviet.com', TRUE),
-('c0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000004', 'Linh', 'Ngô Gia', 'linh.ngo@angia.com', TRUE),
-('c0000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000005', 'Hùng', 'Lê Hữu', 'hung.le@hoabinh.com', TRUE),
-('c0000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000006', 'Trí', 'Nguyễn Đức', 'tri.nguyen@duocxanh.com', TRUE),
-('c0000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000007', 'Sơn', 'Đinh Thanh', 'son.dinh@biendong.com', TRUE),
-('c0000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000008', 'Tú', 'Đỗ Xuân', 'tu.do@vietthanh.com', TRUE),
-('c0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000009', 'Loan', 'Hoàng Kim', 'loan.hoang@alpha.edu', TRUE),
-('c0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000010', 'Trang', 'Bùi Quỳnh', 'trang.bui@truyenthong.com', TRUE),
-('c0000000-0000-0000-0000-000000000012', 'a0000000-0000-0000-0000-000000000011', 'Khánh', 'Phùng Quốc', 'khanh.phung@nongnghiep.com', TRUE),
-('c0000000-0000-0000-0000-000000000013', 'a0000000-0000-0000-0000-000000000012', 'Vinh', 'Cao Hữu', 'vinh.cao@dulichsaigon.com', TRUE),
-('c0000000-0000-0000-0000-000000000014', 'a0000000-0000-0000-0000-000000000001', 'Khương', 'Võ Duy', 'khuong.vo@minhphat.com', FALSE),
-('c0000000-0000-0000-0000-000000000015', 'a0000000-0000-0000-0000-000000000002', 'Nga', 'Đào Thúy', 'nga.dao@donga.com', FALSE),
-('c0000000-0000-0000-0000-000000000016', 'a0000000-0000-0000-0000-000000000003', 'Vy', 'Huỳnh Hạ', 'vy.huynh@thietbiviet.com', FALSE),
-('c0000000-0000-0000-0000-000000000017', 'a0000000-0000-0000-0000-000000000004', 'Ngọc', 'Lâm Bảo', 'ngoc.lam@angia.com', FALSE),
-('c0000000-0000-0000-0000-000000000018', 'a0000000-0000-0000-0000-000000000005', 'My', 'Hồ Trà', 'my.ho@hoabinh.com', FALSE),
-('c0000000-0000-0000-0000-000000000019', 'a0000000-0000-0000-0000-000000000006', 'Khải', 'Đoàn Quang', 'khai.doan@duocxanh.com', FALSE),
-('c0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000007', 'Quang', 'Lý Tấn', 'quang.ly@biendong.com', FALSE);
+-- EMPLOYEE & HR
+('EMPLOYEE_READ', 'Xem danh sách nhân viên', 'EMPLOYEE', 'Quyền xem hồ sơ và danh sách nhân viên'),
+('EMPLOYEE_CREATE', 'Tạo mới nhân viên', 'EMPLOYEE', 'Quyền thêm nhân viên mới vào hệ thống'),
+('EMPLOYEE_UPDATE', 'Cập nhật nhân viên', 'EMPLOYEE', 'Quyền chỉnh sửa thông tin hồ sơ nhân viên'),
+('EMPLOYEE_DELETE', 'Vô hiệu hóa nhân viên', 'EMPLOYEE', 'Quyền ngưng hoạt động nhân viên'),
 
--- 7. TAGS
-INSERT INTO tag (id, name, color) VALUES 
-('t0000000-0000-0000-0000-000000000001', 'VIP', 'red'),
-('t0000000-0000-0000-0000-000000000002', 'Tiềm năng', 'blue'),
-('t0000000-0000-0000-0000-000000000003', 'Enterprise', 'green'),
-('t0000000-0000-0000-0000-000000000004', 'SME', 'yellow'),
-('t0000000-0000-0000-0000-000000000005', 'Cần chăm sóc', 'orange');
+-- TEAM MANAGEMENT
+('TEAM_READ', 'Xem thông tin Team', 'TEAM', 'Quyền xem danh sách và thành viên Team'),
+('TEAM_CREATE', 'Tạo Team mới', 'TEAM', 'Quyền tạo nhóm kinh doanh mới'),
+('TEAM_UPDATE', 'Cập nhật Team', 'TEAM', 'Quyền sửa đổi thông tin nhóm kinh doanh'),
+('TEAM_ASSIGN_MEMBER', 'Phân bổ thành viên Team', 'TEAM', 'Quyền gán/điều chuyển nhân viên vào Team'),
 
--- 8. LEADS (40 Leads)
-INSERT INTO lead (full_name, source_id, status_id, expected_value, owner_id)
-SELECT 
-    'Khách hàng Tiềm năng ' || i,
-    (CASE WHEN i%6 = 0 THEN '40000000-0000-0000-0000-000000000001'
-          WHEN i%6 = 1 THEN '40000000-0000-0000-0000-000000000002'
-          WHEN i%6 = 2 THEN '40000000-0000-0000-0000-000000000003'
-          WHEN i%6 = 3 THEN '40000000-0000-0000-0000-000000000004'
-          WHEN i%6 = 4 THEN '40000000-0000-0000-0000-000000000005'
-          ELSE '40000000-0000-0000-0000-000000000006' END)::uuid,
-    (CASE WHEN i%5 = 0 THEN '50000000-0000-0000-0000-000000000001'
-          WHEN i%5 = 1 THEN '50000000-0000-0000-0000-000000000002'
-          WHEN i%5 = 2 THEN '50000000-0000-0000-0000-000000000003'
-          WHEN i%5 = 3 THEN '50000000-0000-0000-0000-000000000004'
-          ELSE '50000000-0000-0000-0000-000000000005' END)::uuid,
-    (i * 1000000.00),
-    (CASE WHEN i%3 = 0 THEN '20000000-0000-0000-0000-000000000004'
-          WHEN i%3 = 1 THEN '20000000-0000-0000-0000-000000000005'
-          ELSE '20000000-0000-0000-0000-000000000006' END)::uuid
-FROM generate_series(1, 40) AS i;
+-- LEAD MANAGEMENT
+('LEAD_READ', 'Xem danh sách Lead', 'LEAD', 'Quyền xem thông tin Lead được phân công hoặc toàn nhóm'),
+('LEAD_CREATE', 'Tạo mới Lead', 'LEAD', 'Quyền nhập Lead mới vào hệ thống'),
+('LEAD_UPDATE', 'Cập nhật Lead', 'LEAD', 'Quyền chỉnh sửa thông tin và trạng thái Lead'),
+('LEAD_ASSIGN', 'Phân bổ Lead', 'LEAD', 'Quyền gán Lead cho nhân viên kinh doanh'),
+('LEAD_QUALIFY', 'Đánh giá chất lượng Lead', 'LEAD', 'Quyền phân loại POTENTIAL / NOT_POTENTIAL'),
 
--- Đặt một số Lead đã chuyển đổi
-UPDATE lead SET converted_at = CURRENT_TIMESTAMP, converted_account_id = 'a0000000-0000-0000-0000-000000000001', converted_contact_id = 'c0000000-0000-0000-0000-000000000001' WHERE status_id = '50000000-0000-0000-0000-000000000004';
+-- SALES CONTENT
+('CONTENT_READ', 'Xem nội dung bài tiếp thị', 'CONTENT', 'Quyền xem thông tin Sales Content'),
+('CONTENT_CREATE', 'Tạo nội dung tiếp thị', 'CONTENT', 'Quyền xuất bản bài tiếp thị thu Lead'),
 
--- 9. PIPELINES & STAGES
-INSERT INTO pipeline (id, name) VALUES ('60000000-0000-0000-0000-000000000001', 'Pipeline Bán Hàng Chuẩn');
+-- DEAL MANAGEMENT
+('DEAL_READ', 'Xem thông tin Cơ hội kinh doanh', 'DEAL', 'Quyền xem Deal bán hàng'),
+('DEAL_CREATE', 'Tạo mới Cơ hội kinh doanh', 'DEAL', 'Quyền chuyển Lead thành Deal'),
+('DEAL_UPDATE', 'Cập nhật Deal', 'DEAL', 'Quyền điều chỉnh giá trị và giai đoạn đàm phán Deal'),
+('DEAL_CLOSE', 'Chốt Deal (Won/Lost)', 'DEAL', 'Quyền đóng Deal thành công hoặc thất bại'),
 
-INSERT INTO pipeline_stage (id, pipeline_id, code, name, order_index, default_probability, is_closed_won, is_closed_lost) VALUES 
-('70000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 'NEW', 'Khám phá nhu cầu', 0, 10, FALSE, FALSE),
-('70000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000001', 'QUALIFIED', 'Xác định tiềm năng', 1, 30, FALSE, FALSE),
-('70000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 'PROPOSAL', 'Gửi báo giá', 2, 60, FALSE, FALSE),
-('70000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-000000000001', 'NEGOTIATION', 'Đàm phán', 3, 80, FALSE, FALSE),
-('70000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000001', 'WON', 'Thành công (Won)', 4, 100, TRUE, FALSE),
-('70000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-000000000001', 'LOST', 'Thất bại (Lost)', 5, 0, FALSE, TRUE);
+-- CUSTOMER MANAGEMENT
+('CUSTOMER_ACCOUNT_READ', 'Xem thông tin Doanh nghiệp', 'CUSTOMER', 'Quyền xem Hồ sơ Doanh nghiệp khách hàng'),
+('CUSTOMER_ACCOUNT_CREATE', 'Tạo mới Doanh nghiệp', 'CUSTOMER', 'Quyền thêm Doanh nghiệp khách hàng'),
+('CUSTOMER_ACCOUNT_UPDATE', 'Cập nhật Doanh nghiệp', 'CUSTOMER', 'Quyền sửa đổi hồ sơ Doanh nghiệp'),
+('CUSTOMER_CONTACT_READ', 'Xem thông tin Người liên hệ', 'CUSTOMER', 'Quyền xem danh sách Contact khách hàng'),
+('CUSTOMER_CONTACT_CREATE', 'Tạo mới Người liên hệ', 'CUSTOMER', 'Quyền thêm Contact khách hàng'),
 
--- 10. DEALS (25 Deals)
-INSERT INTO deal (id, name, account_id, contact_id, pipeline_id, stage_id, amount, probability, expected_close_date, owner_id)
-SELECT 
-    gen_random_uuid(),
-    'Giao dịch phần mềm CRM - ' || i,
-    (CASE WHEN i%12=0 THEN 'a0000000-0000-0000-0000-000000000012' ELSE ('a0000000-0000-0000-0000-00000000000' || (i%12)::text)::uuid END),
-    (CASE WHEN i%12=0 THEN 'c0000000-0000-0000-0000-000000000013' ELSE ('c0000000-0000-0000-0000-00000000000' || (i%12)::text)::uuid END),
-    '60000000-0000-0000-0000-000000000001',
-    (CASE WHEN i%6 = 0 THEN '70000000-0000-0000-0000-000000000001'
-          WHEN i%6 = 1 THEN '70000000-0000-0000-0000-000000000002'
-          WHEN i%6 = 2 THEN '70000000-0000-0000-0000-000000000003'
-          WHEN i%6 = 3 THEN '70000000-0000-0000-0000-000000000004'
-          WHEN i%6 = 4 THEN '70000000-0000-0000-0000-000000000005'
-          ELSE '70000000-0000-0000-0000-000000000006' END)::uuid,
-    (i * 15000000.00),
-    (CASE WHEN i%2 = 0 THEN NULL ELSE 50 END), -- Test Default Probability (COALESCE)
-    CURRENT_DATE + (i * 2),
-    (CASE WHEN i%4 = 0 THEN '20000000-0000-0000-0000-000000000004'
-          WHEN i%4 = 1 THEN '20000000-0000-0000-0000-000000000005'
-          WHEN i%4 = 2 THEN '20000000-0000-0000-0000-000000000006'
-          ELSE NULL END) -- Some unassigned deals for LEFT JOIN test
-FROM generate_series(1, 25) AS i;
+-- ORDER MANAGEMENT
+('ORDER_READ', 'Xem đơn hàng', 'ORDER', 'Quyền xem danh sách đơn hàng'),
+('ORDER_CREATE', 'Tạo đơn hàng DRAFT', 'ORDER', 'Quyền lên đơn hàng nháp'),
+('ORDER_SUBMIT', 'Gửi duyệt đơn hàng', 'ORDER', 'Quyền gửi đơn hàng lên cấp trên phê duyệt'),
+('ORDER_CANCEL', 'Hủy đơn hàng', 'ORDER', 'Quyền hủy bỏ đơn hàng'),
 
--- Deal Stage History
-INSERT INTO deal_stage_history (deal_id, old_stage_id, new_stage_id)
-SELECT id, '70000000-0000-0000-0000-000000000001', stage_id FROM deal LIMIT 10;
+-- ORDER APPROVAL
+('ORDER_APPROVE', 'Phê duyệt đơn hàng', 'ORDER_APPROVAL', 'Quyền phê duyệt chính thức đơn hàng'),
+('ORDER_REJECT', 'Từ chối đơn hàng', 'ORDER_APPROVAL', 'Quyền từ chối phê duyệt đơn hàng'),
 
--- 11. LEAD ASSIGNMENT RULES
-INSERT INTO lead_assignment_rule (id, name, rule_type) VALUES 
-('80000000-0000-0000-0000-000000000001', 'Chia Lead Miền Bắc', 'round_robin'),
-('80000000-0000-0000-0000-000000000002', 'Chia Lead Theo Nguồn', 'source');
+-- DISCOUNT APPROVAL
+('DISCOUNT_REQUEST_CREATE', 'Tạo yêu cầu chiết khấu', 'DISCOUNT', 'Quyền gửi yêu cầu giảm giá đơn hàng'),
+('DISCOUNT_APPROVE', 'Phê duyệt chiết khấu', 'DISCOUNT', 'Quyền phê duyệt tỷ lệ giảm giá'),
+('DISCOUNT_REJECT', 'Từ chối chiết khấu', 'DISCOUNT', 'Quyền từ chối mức giảm giá'),
 
-INSERT INTO lead_assignment_rule_member (rule_id, user_id, order_index) VALUES 
-('80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004', 0),
-('80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000005', 1),
-('80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000006', 2);
+-- PROJECT DELIVERY
+('PROJECT_READ', 'Xem tiến độ dự án', 'PROJECT', 'Quyền xem tiến độ công việc và Milestone dự án'),
+('PROJECT_CREATE', 'Khởi tạo dự án', 'PROJECT', 'Quyền sinh dự án từ đơn hàng dịch vụ'),
+('PROJECT_UPDATE_STATUS', 'Cập nhật trạng thái dự án', 'PROJECT', 'Quyền thay đổi trạng thái triển khai dự án'),
+('PROJECT_TASK_UPDATE', 'Cập nhật Task dự án', 'PROJECT', 'Quyền đánh dấu hoàn thành Task công việc'),
 
--- Lịch sử chia Lead
-INSERT INTO lead_assignment_history (lead_id, rule_id, assigned_to)
-SELECT id, '80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004' FROM lead LIMIT 5;
+-- PROJECT ASSIGNMENT
+('PROJECT_ASSIGN', 'Phân công kỹ thuật dự án', 'PROJECT_ASSIGNMENT', 'Quyền gán Dev Primary/Support vào dự án'),
+('PROJECT_UNASSIGN', 'Hủy phân công kỹ thuật', 'PROJECT_ASSIGNMENT', 'Quyền tháo gỡ Dev khỏi dự án'),
 
--- 12. DISCOUNT REQUESTS & APPROVALS
-INSERT INTO discount_request (id, deal_id, requester_id, requested_discount_percent, reason, status)
-SELECT 
-    gen_random_uuid(),
-    d.id,
-    '20000000-0000-0000-0000-000000000004',
-    15.50,
-    'Khách hàng thân thiết lâu năm, xin giảm giá để chốt HĐ.',
-    (CASE WHEN d.amount < 150000000 THEN 'approved' WHEN d.amount > 300000000 THEN 'rejected' ELSE 'pending' END)
-FROM deal d LIMIT 5;
+-- PROJECT ACCEPTANCE
+('PROJECT_ACCEPTANCE_RECORD', 'Ghi nhận Nghiệm thu dự án', 'PROJECT_ACCEPTANCE', 'Quyền ghi nhận biên bản nghiệm thu khách hàng'),
 
--- 13. ACTIVITIES (50 bản ghi)
-INSERT INTO activity (type, subject, description, due_date, status, lead_id, owner_id)
-SELECT 
-    'call',
-    'Gọi điện chăm sóc lần ' || i,
-    'Ghi chú cuộc gọi với khách...',
-    CURRENT_DATE + i,
-    'pending',
-    l.id,
-    '20000000-0000-0000-0000-000000000004'
-FROM lead l CROSS JOIN generate_series(1, 1) AS i LIMIT 25;
+-- SEO MANAGEMENT
+('SEO_ARTICLE_READ', 'Xem bài viết SEO', 'SEO', 'Quyền xem danh sách bài viết SEO'),
+('SEO_ARTICLE_CREATE', 'Viết bài SEO mới', 'SEO', 'Quyền tạo bài viết SEO theo kỳ dịch vụ'),
+('SEO_ARTICLE_UPDATE', 'Sửa bài viết SEO', 'SEO', 'Quyền cập nhật nội dung bài viết SEO'),
+('SEO_ARTICLE_SUBMIT', 'Gửi duyệt bài viết SEO', 'SEO', 'Quyền nộp bài SEO lên cấp phê duyệt'),
 
-INSERT INTO activity (type, subject, description, status, deal_id, owner_id)
-SELECT 
-    'meeting',
-    'Họp chốt Deal ' || d.name,
-    'Thuyết trình sản phẩm',
-    'completed',
-    d.id,
-    '20000000-0000-0000-0000-000000000005'
-FROM deal d CROSS JOIN generate_series(1, 1) AS i LIMIT 25;
+-- SEO REVIEW
+('SEO_ARTICLE_REVIEW', 'Duyệt bài viết SEO', 'SEO_REVIEW', 'Quyền đánh giá nghiệm thu chất lượng bài SEO'),
+('SEO_ARTICLE_PUBLISH', 'Xuất bản bài viết SEO', 'SEO_REVIEW', 'Quyền ghi nhận bài SEO hợp lệ tính KPI'),
 
--- 14. TICKETS
-INSERT INTO ticket (id, subject, description, account_id, contact_id, status, priority)
-SELECT 
-    gen_random_uuid(),
-    'Hỗ trợ kỹ thuật cấu hình ' || i,
-    'Khách báo lỗi kết nối...',
-    (CASE WHEN i%12=0 THEN 'a0000000-0000-0000-0000-000000000012' ELSE ('a0000000-0000-0000-0000-00000000000' || (i%12)::text)::uuid END),
-    (CASE WHEN i%12=0 THEN 'c0000000-0000-0000-0000-000000000013' ELSE ('c0000000-0000-0000-0000-00000000000' || (i%12)::text)::uuid END),
-    (CASE WHEN i%4=0 THEN 'open' WHEN i%4=1 THEN 'in_progress' WHEN i%4=2 THEN 'resolved' ELSE 'closed' END),
-    (CASE WHEN i%3=0 THEN 'high' WHEN i%3=1 THEN 'medium' ELSE 'low' END)
-FROM generate_series(1, 12) AS i;
+-- PAYMENT MANAGEMENT
+('PAYMENT_CREATE', 'Tạo giao dịch thanh toán', 'PAYMENT', 'Quyền nhập thông tin tiền thu từ khách hàng'),
+('PAYMENT_READ', 'Xem giao dịch thanh toán', 'PAYMENT', 'Quyền xem danh sách khoản tiền thu'),
+('PAYMENT_REJECT', 'Từ chối giao dịch thanh toán', 'PAYMENT', 'Quyền từ chối chứng từ thanh toán'),
 
--- Ticket Replies
-INSERT INTO ticket_reply (ticket_id, user_id, message)
-SELECT id, '20000000-0000-0000-0000-000000000014', 'Chào anh/chị, em đang kiểm tra hệ thống ạ.' FROM ticket LIMIT 5;
+-- PAYMENT CONFIRMATION
+('PAYMENT_CONFIRM', 'Xác nhận thu tiền (Boss Confirm)', 'PAYMENT_CONFIRM', 'Quyền Boss xác nhận tiền vào tài khoản để ghi nhận doanh số'),
 
--- 15. CAMPAIGNS & ENROLLMENTS
-INSERT INTO campaign (id, name, status) VALUES 
-('90000000-0000-0000-0000-000000000001', 'Drip Email: Chào mừng Khách hàng', 'active'),
-('90000000-0000-0000-0000-000000000002', 'Drip Email: Re-engage Khách hàng cũ', 'active');
+-- INVOICE MANAGEMENT
+('INVOICE_READ', 'Xem hóa đơn', 'INVOICE', 'Quyền xem hóa đơn tài chính'),
+('INVOICE_CREATE', 'Xuất hóa đơn', 'INVOICE', 'Quyền lập hóa đơn cho đơn hàng'),
 
-INSERT INTO email_template (id, name, subject, body_html) VALUES 
-('e0000000-0000-0000-0000-000000000001', 'Welcome Day 1', 'Cảm ơn bạn đã quan tâm', '<h1>Chào bạn!</h1><p>Cảm ơn...</p>'),
-('e0000000-0000-0000-0000-000000000002', 'Followup Day 3', 'Bạn cần hỗ trợ gì không?', '<p>Chúng tôi có thể giúp gì...</p>'),
-('e0000000-0000-0000-0000-000000000003', 'Promo Day 7', 'Tặng bạn voucher 20%', '<h2>Voucher: CRM20</h2>');
+-- COMMISSION ENGINE
+('COMMISSION_READ', 'Xem hoa hồng nhân viên', 'COMMISSION', 'Quyền xem bảng tính hoa hồng'),
+('COMMISSION_ADJUST', 'Điều chỉnh hoa hồng', 'COMMISSION', 'Quyền điều chỉnh số tiền hoa hồng thủ công'),
 
-INSERT INTO campaign_step (id, campaign_id, step_order, action_type, template_id, delay_minutes) VALUES 
-('f0000000-0000-0000-0000-000000000001', '90000000-0000-0000-0000-000000000001', 0, 'email', 'e0000000-0000-0000-0000-000000000001', 0),
-('f0000000-0000-0000-0000-000000000002', '90000000-0000-0000-0000-000000000001', 1, 'email', 'e0000000-0000-0000-0000-000000000002', 4320), -- 3 days
-('f0000000-0000-0000-0000-000000000003', '90000000-0000-0000-0000-000000000001', 2, 'task', NULL, 10080); -- 7 days
+-- COMMISSION APPROVAL
+('COMMISSION_APPROVE', 'Phê duyệt hoa hồng', 'COMMISSION_APPROVE', 'Quyền Boss duyệt giải ngân hoa hồng'),
+('COMMISSION_REJECT', 'Bác bỏ hoa hồng', 'COMMISSION_APPROVE', 'Quyền từ chối hoa hồng'),
 
-INSERT INTO campaign_enrollment (id, campaign_id, lead_id, current_step_id, next_run_at, status)
-SELECT 
-    gen_random_uuid(),
-    '90000000-0000-0000-0000-000000000001', 
-    id, 
-    'f0000000-0000-0000-0000-000000000001',
-    CURRENT_TIMESTAMP + INTERVAL '1 hour',
-    'active'
-FROM lead LIMIT 15;
+-- KPI ENGINE
+('KPI_READ', 'Xem kết quả KPI', 'KPI', 'Quyền xem bảng tính điểm và thưởng KPI'),
+('KPI_CALCULATE', 'Tính toán KPI kỳ', 'KPI', 'Quyền chốt kết quả KPI hàng tháng'),
 
-INSERT INTO email_message (recipient_email, subject, enrollment_id, status)
-SELECT 'test@test.com', 'Welcome Day 1', id, 'sent' FROM campaign_enrollment;
+-- PAYROLL ENGINE
+('PAYROLL_READ', 'Xem bảng lương', 'PAYROLL', 'Quyền xem phiếu lương nhân viên'),
+('PAYROLL_CALCULATE', 'Tính toán bảng lương', 'PAYROLL', 'Quyền lập bảng lương tháng'),
+('PAYROLL_REVIEW', 'Rà soát bảng lương', 'PAYROLL', 'Quyền thẩm định các khoản cộng trừ lương'),
+('PAYROLL_APPROVE', 'Duyệt bảng lương', 'PAYROLL', 'Quyền phê duyệt bảng lương chính thức'),
+('PAYROLL_LOCK', 'Khóa kỳ lương (Payroll Lock)', 'PAYROLL', 'Quyền chốt khóa bất biến dữ liệu lương kỳ'),
 
--- 16. LIVE CHAT
-INSERT INTO chat_session (id, visitor_identifier, status) VALUES 
-('b0000000-0000-0000-0000-000000000001', '192.168.1.1', 'ended'),
-('b0000000-0000-0000-0000-000000000002', '192.168.1.2', 'active');
+-- EXPENSE MANAGEMENT
+('EXPENSE_READ', 'Xem chi phí doanh nghiệp', 'EXPENSE', 'Quyền xem danh mục chi phí'),
+('EXPENSE_CREATE', 'Tạo khoản chi mới', 'EXPENSE', 'Quyền nhập khoản chi phí vận hành'),
+('EXPENSE_APPROVE', 'Duyệt chi', 'EXPENSE', 'Quyền duyệt xuất quỹ chi trả'),
 
-INSERT INTO chat_message (session_id, sender_type, message) VALUES 
-('b0000000-0000-0000-0000-000000000001', 'visitor', 'Cho mình hỏi giá CRM?'),
-('b0000000-0000-0000-0000-000000000001', 'agent', 'Dạ CRM giá 500k/tháng ạ.');
+-- REPORTING & AUDIT
+('REPORT_SALES_READ', 'Xem báo cáo kinh doanh', 'REPORT', 'Quyền xem báo cáo doanh số & lead'),
+('REPORT_FINANCE_READ', 'Xem báo cáo tài chính', 'REPORT', 'Quyền xem báo cáo dòng tiền & thu chi'),
+('REPORT_PROJECT_READ', 'Xem báo cáo dự án', 'REPORT', 'Quyền xem báo cáo tiến độ kỹ thuật'),
+('REPORT_KPI_READ', 'Xem báo cáo KPI', 'REPORT', 'Quyền xem thống kê hiệu suất nhân sự'),
+('AUDIT_READ', 'Xem nhật ký hệ thống (Audit Log)', 'AUDIT', 'Quyền tra cứu lịch sử thao tác hệ thống'),
 
--- 17. AUTOMATION RULES
-INSERT INTO automation_rule (id, name, trigger_event, conditions, actions) VALUES 
-(gen_random_uuid(), 'Gửi mail khi Lead đăng ký', 'lead_created', '{"source": "WEBSITE"}', '{"action": "enroll_campaign", "campaign_id": "90000000-0000-0000-0000-000000000001"}'),
-(gen_random_uuid(), 'Cảnh báo Deal giá trị cao', 'deal_created', '{"amount_greater_than": 100000000}', '{"action": "notify_manager"}'),
-(gen_random_uuid(), 'Đóng Ticket tự động', 'ticket_idle_7_days', '{}', '{"action": "change_status", "status": "closed"}');
+-- SYSTEM CONFIG
+('SYSTEM_CONFIG_READ', 'Xem cấu hình hệ thống', 'SYSTEM_CONFIG', 'Quyền xem tham số kỹ thuật'),
+('SYSTEM_CONFIG_UPDATE', 'Sửa cấu hình hệ thống', 'SYSTEM_CONFIG', 'Quyền thay đổi cài đặt hệ thống')
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    module = EXCLUDED.module,
+    description = EXCLUDED.description;
 
--- 18. WEBHOOKS & NOTIFICATIONS
-INSERT INTO webhook_inbound (provider, external_id, payload) VALUES 
-('facebook', 'fb-1234', '{"leadgen_id":"fb-1234"}'),
-('google', 'gg-5678', '{"gclid":"gg-5678"}'),
-('zalo', 'za-9999', '{"zalo_id":"za-9999"}');
 
-INSERT INTO notification (user_id, type, title, is_read) VALUES 
-('20000000-0000-0000-0000-000000000004', 'deal_assigned', 'Deal mới được gán cho bạn', FALSE),
-('20000000-0000-0000-0000-000000000005', 'lead_assigned', 'Lead mới từ Web', TRUE);
+-- ============================================================================
+-- 4. ROLE PERMISSIONS MAPPING (Strict Convergent Mapping for 7 Core Roles)
+-- ============================================================================
 
--- 19. AUDIT LOGS
-INSERT INTO audit_log (user_id, action, entity_type, entity_id) VALUES 
-('20000000-0000-0000-0000-000000000001', 'CREATE', 'LEAD', gen_random_uuid()),
-('20000000-0000-0000-0000-000000000002', 'UPDATE', 'DEAL', gen_random_uuid()),
-('20000000-0000-0000-0000-000000000004', 'CHANGE_STAGE', 'DEAL', gen_random_uuid()),
-('20000000-0000-0000-0000-000000000002', 'APPROVE_DISCOUNT', 'DISCOUNT_REQUEST', gen_random_uuid());
+-- A. ADMIN: Full System Technical Capability (69 Permissions)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'ADMIN';
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'ADMIN'
+ON CONFLICT DO NOTHING;
+
+-- B. BOSS: Business Approvals, Finance Confirm/Create, Commission, Payroll, Reports (39 Permissions)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'BOSS'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'EMPLOYEE_READ', 'EMPLOYEE_CREATE', 'EMPLOYEE_UPDATE',
+    'TEAM_READ', 'TEAM_CREATE', 'TEAM_UPDATE', 'TEAM_ASSIGN_MEMBER',
+    'LEAD_READ', 'LEAD_ASSIGN', 'LEAD_QUALIFY',
+    'DEAL_READ', 'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_CONTACT_READ',
+    'ORDER_READ', 'ORDER_APPROVE', 'ORDER_REJECT',
+    'DISCOUNT_APPROVE', 'DISCOUNT_REJECT',
+    'PROJECT_READ', 'PROJECT_ASSIGN', 'PROJECT_UNASSIGN', 'PROJECT_ACCEPTANCE_RECORD',
+    'SEO_ARTICLE_READ', 'SEO_ARTICLE_REVIEW', 'SEO_ARTICLE_PUBLISH',
+    'PAYMENT_CREATE', 'PAYMENT_READ', 'PAYMENT_CONFIRM', 'PAYMENT_REJECT',
+    'INVOICE_READ', 'COMMISSION_READ', 'COMMISSION_ADJUST', 'COMMISSION_APPROVE', 'COMMISSION_REJECT',
+    'KPI_READ', 'KPI_CALCULATE',
+    'PAYROLL_READ', 'PAYROLL_CALCULATE', 'PAYROLL_REVIEW', 'PAYROLL_APPROVE', 'PAYROLL_LOCK',
+    'EXPENSE_READ', 'EXPENSE_APPROVE',
+    'REPORT_SALES_READ', 'REPORT_FINANCE_READ', 'REPORT_PROJECT_READ', 'REPORT_KPI_READ',
+    'AUDIT_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'BOSS' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'EMPLOYEE_READ', 'EMPLOYEE_CREATE', 'EMPLOYEE_UPDATE',
+    'TEAM_READ', 'TEAM_CREATE', 'TEAM_UPDATE', 'TEAM_ASSIGN_MEMBER',
+    'LEAD_READ', 'LEAD_ASSIGN', 'LEAD_QUALIFY',
+    'DEAL_READ', 'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_CONTACT_READ',
+    'ORDER_READ', 'ORDER_APPROVE', 'ORDER_REJECT',
+    'DISCOUNT_APPROVE', 'DISCOUNT_REJECT',
+    'PROJECT_READ', 'PROJECT_ASSIGN', 'PROJECT_UNASSIGN', 'PROJECT_ACCEPTANCE_RECORD',
+    'SEO_ARTICLE_READ', 'SEO_ARTICLE_REVIEW', 'SEO_ARTICLE_PUBLISH',
+    'PAYMENT_CREATE', 'PAYMENT_READ', 'PAYMENT_CONFIRM', 'PAYMENT_REJECT',
+    'INVOICE_READ', 'COMMISSION_READ', 'COMMISSION_ADJUST', 'COMMISSION_APPROVE', 'COMMISSION_REJECT',
+    'KPI_READ', 'KPI_CALCULATE',
+    'PAYROLL_READ', 'PAYROLL_CALCULATE', 'PAYROLL_REVIEW', 'PAYROLL_APPROVE', 'PAYROLL_LOCK',
+    'EXPENSE_READ', 'EXPENSE_APPROVE',
+    'REPORT_SALES_READ', 'REPORT_FINANCE_READ', 'REPORT_PROJECT_READ', 'REPORT_KPI_READ',
+    'AUDIT_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- C. ACCOUNTANT: Payments Creation, Invoices, Expenses, Payroll Calculation (16 Permissions - NO PAYMENT_CONFIRM)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'ACCOUNTANT'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'EMPLOYEE_READ', 'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_CONTACT_READ',
+    'ORDER_READ', 'PAYMENT_CREATE', 'PAYMENT_READ',
+    'INVOICE_READ', 'INVOICE_CREATE',
+    'EXPENSE_READ', 'EXPENSE_CREATE',
+    'PAYROLL_READ', 'PAYROLL_CALCULATE', 'PAYROLL_REVIEW',
+    'REPORT_FINANCE_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'ACCOUNTANT' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'EMPLOYEE_READ', 'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_CONTACT_READ',
+    'ORDER_READ', 'PAYMENT_CREATE', 'PAYMENT_READ',
+    'INVOICE_READ', 'INVOICE_CREATE',
+    'EXPENSE_READ', 'EXPENSE_CREATE',
+    'PAYROLL_READ', 'PAYROLL_CALCULATE', 'PAYROLL_REVIEW',
+    'REPORT_FINANCE_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- D. SALE: Lead/Deal/Order/Activity within Sales Scope (25 Permissions - NO PAYMENT_CREATE)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'SALE'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'LEAD_READ', 'LEAD_CREATE', 'LEAD_UPDATE', 'LEAD_QUALIFY',
+    'CONTENT_READ', 'CONTENT_CREATE',
+    'DEAL_READ', 'DEAL_CREATE', 'DEAL_UPDATE', 'DEAL_CLOSE',
+    'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_ACCOUNT_CREATE', 'CUSTOMER_ACCOUNT_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'CUSTOMER_CONTACT_CREATE',
+    'ORDER_READ', 'ORDER_CREATE', 'ORDER_SUBMIT',
+    'DISCOUNT_REQUEST_CREATE', 'PROJECT_READ', 'COMMISSION_READ', 'KPI_READ',
+    'REPORT_SALES_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'SALE' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'LEAD_READ', 'LEAD_CREATE', 'LEAD_UPDATE', 'LEAD_QUALIFY',
+    'CONTENT_READ', 'CONTENT_CREATE',
+    'DEAL_READ', 'DEAL_CREATE', 'DEAL_UPDATE', 'DEAL_CLOSE',
+    'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_ACCOUNT_CREATE', 'CUSTOMER_ACCOUNT_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'CUSTOMER_CONTACT_CREATE',
+    'ORDER_READ', 'ORDER_CREATE', 'ORDER_SUBMIT',
+    'DISCOUNT_REQUEST_CREATE', 'PROJECT_READ', 'COMMISSION_READ', 'KPI_READ',
+    'REPORT_SALES_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- E. SALES_TEAM_LEADER: Sale Capabilities + Team Lead Assignment + Team Reports (29 Permissions - NO PAYMENT_CREATE)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'SALES_TEAM_LEADER'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'TEAM_READ', 'LEAD_READ', 'LEAD_CREATE', 'LEAD_UPDATE', 'LEAD_ASSIGN', 'LEAD_QUALIFY',
+    'CONTENT_READ', 'CONTENT_CREATE',
+    'DEAL_READ', 'DEAL_CREATE', 'DEAL_UPDATE', 'DEAL_CLOSE',
+    'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_ACCOUNT_CREATE', 'CUSTOMER_ACCOUNT_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'CUSTOMER_CONTACT_CREATE',
+    'ORDER_READ', 'ORDER_CREATE', 'ORDER_SUBMIT',
+    'DISCOUNT_REQUEST_CREATE', 'PROJECT_READ', 'COMMISSION_READ', 'KPI_READ',
+    'REPORT_SALES_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'SALES_TEAM_LEADER' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'TEAM_READ', 'LEAD_READ', 'LEAD_CREATE', 'LEAD_UPDATE', 'LEAD_ASSIGN', 'LEAD_QUALIFY',
+    'CONTENT_READ', 'CONTENT_CREATE',
+    'DEAL_READ', 'DEAL_CREATE', 'DEAL_UPDATE', 'DEAL_CLOSE',
+    'CUSTOMER_ACCOUNT_READ', 'CUSTOMER_ACCOUNT_CREATE', 'CUSTOMER_ACCOUNT_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'CUSTOMER_CONTACT_CREATE',
+    'ORDER_READ', 'ORDER_CREATE', 'ORDER_SUBMIT',
+    'DISCOUNT_REQUEST_CREATE', 'PROJECT_READ', 'COMMISSION_READ', 'KPI_READ',
+    'REPORT_SALES_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- F. DEV: Project Tasks, Status Updates & Personal Commission (NO PAYMENT, NO PAYROLL)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'DEV'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'DEV' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- F2. DEV_TEAM_LEADER: Dev Capabilities + Project Assignment & Team Read
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'DEV_TEAM_LEADER'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'PROJECT_ASSIGN', 'PROJECT_UNASSIGN', 'PROJECT_CREATE',
+    'TEAM_READ', 'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'DEV_TEAM_LEADER' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'PROJECT_ASSIGN', 'PROJECT_UNASSIGN', 'PROJECT_CREATE',
+    'TEAM_READ', 'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- G. SEO: SEO Project Tasks & Personal Commission (NO CMS/article management)
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'SEO'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'SEO' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+)
+ON CONFLICT DO NOTHING;
+
+-- G2. SEO_TEAM_LEADER: SEO Project Assignment, Team Read & Revenue Tracking
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.code = 'SEO_TEAM_LEADER'
+  AND p.code NOT IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'PROJECT_ASSIGN', 'PROJECT_UNASSIGN',
+    'TEAM_READ', 'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'SEO_TEAM_LEADER' AND p.code IN (
+    'AUTH_LOGIN', 'AUTH_RESET_PASSWORD',
+    'PROJECT_READ', 'PROJECT_UPDATE_STATUS', 'PROJECT_TASK_UPDATE',
+    'PROJECT_ASSIGN', 'PROJECT_UNASSIGN',
+    'TEAM_READ', 'CUSTOMER_CONTACT_READ', 'KPI_READ', 'REPORT_PROJECT_READ', 'COMMISSION_READ'
+)
+ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================
+-- 5. PLATFORMS (5 Core Marketing Platforms)
+-- ============================================================================
+INSERT INTO platforms (code, name, is_active) VALUES
+('FACEBOOK', 'Facebook Ads & Fanpage', TRUE),
+('TIKTOK', 'TikTok Ads & Shop', TRUE),
+('GOOGLE', 'Google Search & Display Ads', TRUE),
+('WEBSITE', 'Website Landing Page Direct', TRUE),
+('ZALO', 'Zalo Official Account & Ads', TRUE)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    is_active = EXCLUDED.is_active;
+
+
+-- ============================================================================
+-- 6. CHANNELS (5 Core Acquisition Channels)
+-- ============================================================================
+INSERT INTO channels (code, name, is_active) VALUES
+('ORGANIC', 'SEO & Organic Content Search', TRUE),
+('PAID_ADS', 'Quảng Cáo Trả Phí', TRUE),
+('REFERRAL', 'Khách Hàng Giới Thiệu', TRUE),
+('DIRECT', 'Khách Hàng Tìm Đến Trực Tiếp', TRUE),
+('MANUAL', 'Nhập Thủ Công Từ Outreach/Telesale', TRUE)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    is_active = EXCLUDED.is_active;
+
+
+-- ============================================================================
+-- 7. SERVICES CATALOG (9 Standard Services)
+-- ============================================================================
+INSERT INTO services (code, name, service_type, description, is_active) VALUES
+('WEB', 'Thiết Kế & Lập Trình Website Doanh Nghiệp', 'PROJECT', 'Dịch vụ thiết kế và lập trình website trọn gói theo yêu cầu', TRUE),
+('SEO', 'Dịch Vụ SEO Website Tổng Thể', 'RECURRING', 'Dịch vụ tối ưu hóa công cụ tìm kiếm và đẩy từ khóa duy trì theo tháng/quý', TRUE),
+('FACEBOOK_ADS', 'Quản Lý Quảng Cáo Facebook', 'RECURRING', 'Dịch vụ chạy và tối ưu hóa chiến dịch quảng cáo Facebook Ads', TRUE),
+('GOOGLE_ADS', 'Quản Lý Quảng Cáo Google Ads', 'RECURRING', 'Dịch vụ tư vấn và vận hành quảng cáo Google Search/Shopping', TRUE),
+('TIKTOK_ADS', 'Quản Lý Quảng Cáo TikTok Ads', 'RECURRING', 'Dịch vụ chạy quảng cáo video và gian hàng TikTok Shop', TRUE),
+('HOSTING', 'Cho Thụe & Quản Trị Server/Hosting', 'RECURRING', 'Dịch vụ lưu trữ dữ liệu website và hạ tầng máy chủ', TRUE),
+('DOMAIN', 'Đăng Ký & Duy Trì Tên Miền', 'RECURRING', 'Dịch vụ duy trì tên miền thương hiệu doanh nghiệp', TRUE),
+('MAINTENANCE', 'Bảo Trì & Nâng Cấp Website', 'PROJECT', 'Dịch vụ kiểm tra, sửa lỗi và nâng cấp tính năng website', TRUE),
+('SOFTWARE', 'Phát Triển Phần Mềm Theo Yêu Cầu', 'PROJECT', 'Dịch vụ phân tích, thiết kế và lập trình phần mềm doanh nghiệp', TRUE)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    service_type = EXCLUDED.service_type,
+    description = EXCLUDED.description,
+    is_active = EXCLUDED.is_active;
+
+
+-- ============================================================================
+-- 8. EXPENSE CATEGORIES (13 Operating Expense Categories)
+-- ============================================================================
+INSERT INTO expense_categories (code, name, description) VALUES
+('SALARY_PAYROLL', 'Chi Phí Lương & Hoa Hồng Nhân Viên', 'Khoản chi trả lương cố định, thưởng KPI và hoa hồng kinh doanh'),
+('OFFICE_RENT', 'Chi Phí Thuê Văn Phòng', 'Khoản chi thuê mặt bằng làm việc định kỳ hàng tháng'),
+('ELECTRICITY', 'Chi Phí Điện Vận Hành', 'Khoản chi trả tiền điện văn phòng'),
+('WATER', 'Chi Phí Nước Sinh Hoạt', 'Khoản chi trả tiền nước văn phòng'),
+('INTERNET', 'Chi Phí Mạng Internet & Viễn Thông', 'Khoản chi trả cước internet và tổng đài điện thoại'),
+('FACEBOOK_ADS', 'Chi Phí Chạy Quảng Cáo Facebook', 'Khoản nạp tiền trả cho Facebook Ads Manager'),
+('GOOGLE_ADS', 'Chi Phí Chạy Quảng Cáo Google', 'Khoản nạp tiền trả cho Google Ads Billing'),
+('TIKTOK_ADS', 'Chi Phí Chạy Quảng Cáo TikTok', 'Khoản nạp tiền trả cho TikTok Ads Manager'),
+('SOFTWARE', 'Chi Phí Phần Mềm & Bản Quyền Tool', 'Khoản chi mua phần mềm làm việc, SaaS và license'),
+('HOSTING', 'Chi Phí Hạ Tầng Máy Chủ & Cloud', 'Khoản chi duy trì server, VPS, AWS và Cloud hosting'),
+('DOMAIN', 'Chi Phí Tên Miền Doanh Nghiệp', 'Khoản chi đăng ký và duy trì domain với nhà cung cấp'),
+('EQUIPMENT', 'Chi Phí Thiết Bị Văn Phòng', 'Khoản chi mua sắm máy tính, bàn ghế và trang thiết bị'),
+('OTHER', 'Chi Phí Khác', 'Các khoản chi phí vận hành phát sinh ngoài danh mục')
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, 
+    description = EXCLUDED.description;
+
+
+-- ============================================================================
+-- 9. PAYMENT PLAN TEMPLATES (Generic Templates - CONVERGENT via DO Block Upsert)
+-- ============================================================================
+-- OPEN BUSINESS RULE - NOT SEEDED:
+-- Website < 5,000,000đ → 100% upfront.
+-- Website > 5,000,000đ → 50/50.
+-- Website = 5,000,000đ → OPEN BUSINESS RULE - NOT SEEDED.
+-- Các template dưới đây là reusable configuration mẫu, KHÔNG tự động áp dụng policy.
+-- ============================================================================
+DO $$
+DECLARE
+    v_service_id BIGINT;
+BEGIN
+    SELECT id INTO v_service_id FROM services WHERE code = 'WEB';
+
+    -- 1) UPFRONT_100
+    IF EXISTS (SELECT 1 FROM payment_plan_templates WHERE service_id = v_service_id AND plan_name = 'UPFRONT_100') THEN
+        UPDATE payment_plan_templates 
+        SET config_json = '{"description": "Thanh toán 100% ngay khi ký hợp đồng", "installments": [{"number": 1, "percent": 100, "trigger": "CONTRACT_SIGNED"}]}'::jsonb,
+            is_active = TRUE
+        WHERE service_id = v_service_id AND plan_name = 'UPFRONT_100';
+    ELSE
+        INSERT INTO payment_plan_templates (service_id, plan_name, config_json, is_active)
+        VALUES (v_service_id, 'UPFRONT_100', '{"description": "Thanh toán 100% ngay khi ký hợp đồng", "installments": [{"number": 1, "percent": 100, "trigger": "CONTRACT_SIGNED"}]}'::jsonb, TRUE);
+    END IF;
+
+    -- 2) FIFTY_FIFTY
+    IF EXISTS (SELECT 1 FROM payment_plan_templates WHERE service_id = v_service_id AND plan_name = 'FIFTY_FIFTY') THEN
+        UPDATE payment_plan_templates 
+        SET config_json = '{"description": "Thanh toán 50% đặt cọc, 50% khi nghiệm thu bàn giao", "installments": [{"number": 1, "percent": 50, "trigger": "CONTRACT_SIGNED"}, {"number": 2, "percent": 50, "trigger": "PROJECT_DELIVERY"}]}'::jsonb,
+            is_active = TRUE
+        WHERE service_id = v_service_id AND plan_name = 'FIFTY_FIFTY';
+    ELSE
+        INSERT INTO payment_plan_templates (service_id, plan_name, config_json, is_active)
+        VALUES (v_service_id, 'FIFTY_FIFTY', '{"description": "Thanh toán 50% đặt cọc, 50% khi nghiệm thu bàn giao", "installments": [{"number": 1, "percent": 50, "trigger": "CONTRACT_SIGNED"}, {"number": 2, "percent": 50, "trigger": "PROJECT_DELIVERY"}]}'::jsonb, TRUE);
+    END IF;
+
+    -- 3) CUSTOM_INSTALLMENTS
+    IF EXISTS (SELECT 1 FROM payment_plan_templates WHERE service_id = v_service_id AND plan_name = 'CUSTOM_INSTALLMENTS') THEN
+        UPDATE payment_plan_templates 
+        SET config_json = '{"description": "Thanh toán theo tiến độ 3 đợt (40-30-30)", "installments": [{"number": 1, "percent": 40, "trigger": "CONTRACT_SIGNED"}, {"number": 2, "percent": 30, "trigger": "DESIGN_APPROVED"}, {"number": 3, "percent": 30, "trigger": "PROJECT_DELIVERY"}]}'::jsonb,
+            is_active = TRUE
+        WHERE service_id = v_service_id AND plan_name = 'CUSTOM_INSTALLMENTS';
+    ELSE
+        INSERT INTO payment_plan_templates (service_id, plan_name, config_json, is_active)
+        VALUES (v_service_id, 'CUSTOM_INSTALLMENTS', '{"description": "Thanh toán theo tiến độ 3 đợt (40-30-30)", "installments": [{"number": 1, "percent": 40, "trigger": "CONTRACT_SIGNED"}, {"number": 2, "percent": 30, "trigger": "DESIGN_APPROVED"}, {"number": 3, "percent": 30, "trigger": "PROJECT_DELIVERY"}]}'::jsonb, TRUE);
+    END IF;
+END $$;
+
+
+-- ============================================================================
+-- 10. COMMISSION POLICIES (Confirmed Business Flow Rules - CONVERGENT via DO Block Upsert)
+-- ============================================================================
+DO $$
+DECLARE
+    v_pos_sale BIGINT;
+    v_pos_tl BIGINT;
+    v_pos_dev BIGINT;
+    v_srv_web BIGINT;
+BEGIN
+    SELECT id INTO v_pos_sale FROM positions WHERE code = 'SALE';
+    SELECT id INTO v_pos_tl FROM positions WHERE code = 'SALES_TEAM_LEADER';
+    SELECT id INTO v_pos_dev FROM positions WHERE code = 'DEV';
+    SELECT id INTO v_srv_web FROM services WHERE code = 'WEB';
+
+    -- 1) Sale Commission Policy: SALE Position -> 6%
+    IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'SALE' AND position_id = v_pos_sale AND service_id IS NULL AND assignee_count IS NULL) THEN
+        UPDATE commission_policies 
+        SET rate = 0.0600, policy_name = 'Chính Sách Hoa Hồng Closing Sale (Vị trí SALE)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE policy_type = 'SALE' AND position_id = v_pos_sale AND service_id IS NULL AND assignee_count IS NULL;
+    ELSE
+        INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+        VALUES ('Chính Sách Hoa Hồng Closing Sale (Vị trí SALE)', 'SALE', NULL, v_pos_sale, NULL, 0.0600, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+    END IF;
+
+    -- 2) Sale Commission Policy: SALES_TEAM_LEADER Position -> 4% (Personal Sale)
+    IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'SALE' AND position_id = v_pos_tl AND service_id IS NULL AND assignee_count IS NULL) THEN
+        UPDATE commission_policies 
+        SET rate = 0.0400, policy_name = 'Chính Sách Hoa Hồng Closing Sale (Vị trí SALES_TEAM_LEADER)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE policy_type = 'SALE' AND position_id = v_pos_tl AND service_id IS NULL AND assignee_count IS NULL;
+    ELSE
+        INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+        VALUES ('Chính Sách Hoa Hồng Closing Sale (Vị trí SALES_TEAM_LEADER)', 'SALE', NULL, v_pos_tl, NULL, 0.0400, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+    END IF;
+
+    -- 3) Project Delivery Commission: 3% for 1 Primary Dev
+    IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_web AND position_id = v_pos_dev AND assignee_count = 1) THEN
+        UPDATE commission_policies 
+        SET rate = 0.0300, policy_name = 'Chính Sách Hoa Hồng Kỹ Thuật Project (1 Dev Chính)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_web AND position_id = v_pos_dev AND assignee_count = 1;
+    ELSE
+        INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+        VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Project (1 Dev Chính)', 'PROJECT_DELIVERY', v_srv_web, v_pos_dev, 1, 0.0300, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+    END IF;
+
+    -- 4) Project Delivery Commission: 2% EACH for 2 Primary Devs
+    IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_web AND position_id = v_pos_dev AND assignee_count = 2) THEN
+        UPDATE commission_policies 
+        SET rate = 0.0200, policy_name = 'Chính Sách Hoa Hồng Kỹ Thuật Project (2 Dev Chính)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_web AND position_id = v_pos_dev AND assignee_count = 2;
+    ELSE
+        INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+        VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Project (2 Dev Chính)', 'PROJECT_DELIVERY', v_srv_web, v_pos_dev, 2, 0.0200, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+    END IF;
+
+    -- 5) Team Leader Override Policy: 2% Override for Sales Team Leader
+    IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'TEAM_OVERRIDE' AND position_id = v_pos_tl AND service_id IS NULL AND assignee_count IS NULL) THEN
+        UPDATE commission_policies 
+        SET rate = 0.0200, policy_name = 'Chính Sách Thưởng Override Sales Team Leader', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE policy_type = 'TEAM_OVERRIDE' AND position_id = v_pos_tl AND service_id IS NULL AND assignee_count IS NULL;
+    ELSE
+        INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+        VALUES ('Chính Sách Thưởng Override Sales Team Leader', 'TEAM_OVERRIDE', NULL, v_pos_tl, NULL, 0.0200, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+    END IF;
+END $$;
+
+
+-- ============================================================================
+-- 11. KPI POLICIES & TIERS (Fully Convergent via DO Block Upsert & Canonical Thresholds)
+-- ============================================================================
+
+-- 1) SALE KPI Policy: Confirmed Cash Revenue Tiers (120M -> +1M, 150M -> +2M, 200M -> +3M)
+DO $$
+DECLARE
+    v_policy_id BIGINT;
+    v_position_id BIGINT;
+BEGIN
+    SELECT id INTO v_position_id FROM positions WHERE code = 'SALE';
+    
+    -- Check if policy already exists
+    SELECT id INTO v_policy_id 
+    FROM kpi_policies 
+    WHERE position_id = v_position_id AND metric_type = 'CASH_REVENUE';
+
+    IF v_policy_id IS NOT NULL THEN
+        UPDATE kpi_policies 
+        SET policy_name = 'Chính Sách Thưởng KPI Doanh Thu Thực Thu Sales', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE id = v_policy_id;
+    ELSE
+        INSERT INTO kpi_policies (policy_name, position_id, metric_type, effective_range)
+        VALUES ('Chính Sách Thưởng KPI Doanh Thu Thực Thu Sales', v_position_id, 'CASH_REVENUE', tstzrange('2026-01-01 00:00:00+00', NULL, '[)'))
+        RETURNING id INTO v_policy_id;
+    END IF;
+
+    -- Upsert tiers idempotently & convergently
+    IF v_policy_id IS NOT NULL THEN
+        -- Tier 1: min_threshold = 0.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 0.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = 120000000.00, reward_amount = 0.00, tier_note = 'Dưới 120 triệu - Khởi động (Không thưởng)'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 0.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 0.00, 120000000.00, 0.00, 'Dưới 120 triệu - Khởi động (Không thưởng)');
+        END IF;
+
+        -- Tier 2: min_threshold = 120000000.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 120000000.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = 150000000.00, reward_amount = 1000000.00, tier_note = 'Từ 120 triệu đến dưới 150 triệu - Thưởng 1,000,000đ'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 120000000.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 120000000.00, 150000000.00, 1000000.00, 'Từ 120 triệu đến dưới 150 triệu - Thưởng 1,000,000đ');
+        END IF;
+
+        -- Tier 3: min_threshold = 150000000.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 150000000.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = 200000000.00, reward_amount = 2000000.00, tier_note = 'Từ 150 triệu đến dưới 200 triệu - Thưởng 2,000,000đ'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 150000000.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 150000000.00, 200000000.00, 2000000.00, 'Từ 150 triệu đến dưới 200 triệu - Thưởng 2,000,000đ');
+        END IF;
+
+        -- Tier 4: min_threshold = 200000000.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 200000000.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = NULL, reward_amount = 3000000.00, tier_note = 'Từ 200 triệu trở lên - Thưởng 3,000,000đ'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 200000000.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 200000000.00, NULL, 3000000.00, 'Từ 200 triệu trở lên - Thưởng 3,000,000đ');
+        END IF;
+    END IF;
+END $$;
+
+-- 2) SEO KPI Policy: Confirmed Valid Articles Count Tiers (100 -> +1M, 150 -> +2M)
+DO $$
+DECLARE
+    v_policy_id BIGINT;
+    v_position_id BIGINT;
+BEGIN
+    SELECT id INTO v_position_id FROM positions WHERE code = 'SEO';
+
+    -- Check if policy already exists
+    SELECT id INTO v_policy_id 
+    FROM kpi_policies 
+    WHERE position_id = v_position_id AND metric_type = 'SEO_ARTICLE_COUNT';
+
+    IF v_policy_id IS NOT NULL THEN
+        UPDATE kpi_policies 
+        SET policy_name = 'Chính Sách Thưởng KPI Bài Viết Chuẩn SEO', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+        WHERE id = v_policy_id;
+    ELSE
+        INSERT INTO kpi_policies (policy_name, position_id, metric_type, effective_range)
+        VALUES ('Chính Sách Thưởng KPI Bài Viết Chuẩn SEO', v_position_id, 'SEO_ARTICLE_COUNT', tstzrange('2026-01-01 00:00:00+00', NULL, '[)'))
+        RETURNING id INTO v_policy_id;
+    END IF;
+
+    -- Upsert tiers idempotently & convergently
+    IF v_policy_id IS NOT NULL THEN
+        -- Tier 1: min_threshold = 0.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 0.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = 100.00, reward_amount = 0.00, tier_note = 'Dưới 100 bài viết - Cơ bản (Không thưởng)'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 0.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 0.00, 100.00, 0.00, 'Dưới 100 bài viết - Cơ bản (Không thưởng)');
+        END IF;
+
+        -- Tier 2: min_threshold = 100.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 100.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = 150.00, reward_amount = 1000000.00, tier_note = 'Từ 100 đến dưới 150 bài viết - Thưởng 1,000,000đ'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 100.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 100.00, 150.00, 1000000.00, 'Từ 100 đến dưới 150 bài viết - Thưởng 1,000,000đ');
+        END IF;
+
+        -- Tier 3: min_threshold = 150.00
+        IF EXISTS (SELECT 1 FROM kpi_policy_tiers WHERE kpi_policy_id = v_policy_id AND min_threshold = 150.00) THEN
+            UPDATE kpi_policy_tiers 
+            SET max_threshold = NULL, reward_amount = 2000000.00, tier_note = 'Từ 150 bài viết trở lên - Thưởng 2,000,000đ'
+            WHERE kpi_policy_id = v_policy_id AND min_threshold = 150.00;
+        ELSE
+            INSERT INTO kpi_policy_tiers (kpi_policy_id, min_threshold, max_threshold, reward_amount, tier_note)
+            VALUES (v_policy_id, 150.00, NULL, 2000000.00, 'Từ 150 bài viết trở lên - Thưởng 2,000,000đ');
+        END IF;
+    END IF;
+END $$;
+
+-- ============================================================================
+-- OPEN BUSINESS RULE - NOT SEEDED (DEV KPI & BONUS):
+-- 1. Các khoảng thưởng KPI Dev (<5, >7<10, >15<20, >20) vẫn đang OPEN.
+-- 2. Mốc Dev Bonus 10/15 (KPI Points vs Completed Website count) chưa chốt tiêu chí.
+-- TUYỆT ĐỐI KHÔNG SEED DỮ LIỆU GIẢ HOẶC CHỌN THAY NGUYÊN TẮC CHO DEV KPI POLICIES.
+-- ============================================================================
+
+
+-- ============================================================================
+-- 12. 5 OPEN BUSINESS RULES AUDIT CHECKLIST
+-- ============================================================================
+-- [PASS] Rule 1: Website < 5M (100%), Website > 5M (50/50), Website = 5M -> OPEN BUSINESS RULE - NOT SEEDED.
+-- [PASS] Rule 2: Dev KPI gaps (<5, 7-10, 15-20, >20) -> OPEN BUSINESS RULE - NOT SEEDED.
+-- [PASS] Rule 3: Dev Bonus 10/15 (KPI Points vs Completed Website count) -> OPEN BUSINESS RULE - NOT SEEDED.
+-- [PASS] Rule 4: Late Customer Acceptance sau khi Payroll LOCKED -> OPEN BUSINESS RULE - NOT SEEDED.
+-- [PASS] Rule 5: Management Revenue / Management Profit recognition -> OPEN BUSINESS RULE - NOT SEEDED.
+
+-- ============================================================================
+-- END OF CRM MASTER & REFERENCE DATA SEED SCRIPT (V4.5)
+-- ============================================================================

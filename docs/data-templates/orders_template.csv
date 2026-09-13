@@ -1,0 +1,4 @@
+order_title,customer_code,sale_employee_code,service_code,contract_value,notes
+Hop dong website ban hang ABC,CUST-001,EMP-001,WEB,20000000,Thanh toan 50% dot 1
+Hop dong SEO tong the 6 thang,CUST-002,EMP-001,SEO,30000000,Duy tri hang thang 5M
+Goi bao tri nang cap he thong,CUST-003,EMP-001,MAINTENANCE,6000000,Sua loi va toi uu toc do

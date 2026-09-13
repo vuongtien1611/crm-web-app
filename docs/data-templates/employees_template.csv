@@ -1,0 +1,8 @@
+employee_code,full_name,email,phone,position_code,department,hire_date,status
+EMP-001,Nguyen Van A,nguyenvana@company.com,0901234567,SALE,SALES,2026-01-15,ACTIVE
+EMP-002,Tran Thi B,tranthib@company.com,0912345678,SALES_TEAM_LEADER,SALES,2025-06-01,ACTIVE
+EMP-003,Le Van C,levanc@company.com,0987654321,DEV,DEV,2025-09-01,ACTIVE
+EMP-004,Pham Thi D,phamthid@company.com,0934567890,DEV_TEAM_LEADER,DEV,2024-11-20,ACTIVE
+EMP-005,Hoang Van E,hoangvane@company.com,0978901234,SEO,SEO,2026-02-01,ACTIVE
+EMP-006,Vu Thi F,vuthif@company.com,0965432109,SEO_TEAM_LEADER,SEO,2025-03-10,ACTIVE
+EMP-007,Do Van G,dovang@company.com,0943210987,ACCOUNTANT,OPERATION,2024-05-15,ACTIVE
