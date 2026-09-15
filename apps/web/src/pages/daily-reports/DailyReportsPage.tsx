@@ -92,7 +92,7 @@ export const DailyReportsPage: React.FC = () => {
   const isAdmin = roles.includes('ADMIN');
   const isAdminOrBoss = isAdmin || isBoss;
   const isTeamLeader = roles.some((r) => r.includes('LEADER'));
-  const canAccessWeekly = isBoss || isTeamLeader;
+  const canAccessWeekly = isBoss || isTeamLeader || isAdmin;
   const canAccessTeamDaily = isTeamLeader || isAdminOrBoss;
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -106,6 +106,13 @@ export const DailyReportsPage: React.FC = () => {
   };
 
   const [activeTab, setActiveTab] = useState<string>(getInitialTab);
+
+  useEffect(() => {
+    if (tabParam && ['overview', 'daily', 'weekly', 'project'].includes(tabParam)) {
+      if (tabParam === 'weekly' && !canAccessWeekly) return;
+      setActiveTab(tabParam);
+    }
+  }, [tabParam, canAccessWeekly]);
   const queryClient = useQueryClient();
 
   // Quick Date Preset
@@ -1109,14 +1116,14 @@ export const DailyReportsPage: React.FC = () => {
       >
         <div>
           <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
-            Báo cáo công việc
+            Báo cáo
           </Title>
           <Text style={{ color: '#64748b', fontSize: 14 }}>
             {isAdminOrBoss
-              ? 'Theo dõi tiến độ, hiệu suất làm việc của toàn công ty'
+              ? 'Tổng hợp và theo dõi báo cáo ngày, báo cáo tuần, tiến độ dự án toàn công ty'
               : isTeamLeader
-              ? 'Theo dõi tiến độ, hiệu suất làm việc của Team'
-              : 'Ghi nhận và cập nhật tiến độ công việc cá nhân'}
+              ? 'Quản lý báo cáo ngày, tổng hợp báo cáo tuần và tiến độ công việc của Team'
+              : 'Ghi nhận báo cáo ngày, theo dõi tiến độ công việc và dự án cá nhân'}
           </Text>
         </div>
 
@@ -1192,20 +1199,37 @@ export const DailyReportsPage: React.FC = () => {
             Xuất Excel
           </Button>
 
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleOpenCreateModal}
-            style={{
-              borderRadius: 8,
-              height: 38,
-              backgroundColor: '#059669',
-              borderColor: '#059669',
-              fontWeight: 600,
-            }}
-          >
-            Tạo báo cáo ngày
-          </Button>
+          {activeTab === 'weekly' && canAccessWeekly ? (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleOpenWeeklyCreateModal}
+              style={{
+                borderRadius: 8,
+                height: 38,
+                backgroundColor: '#059669',
+                borderColor: '#059669',
+                fontWeight: 600,
+              }}
+            >
+              Tạo báo cáo tuần
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleOpenCreateModal}
+              style={{
+                borderRadius: 8,
+                height: 38,
+                backgroundColor: '#059669',
+                borderColor: '#059669',
+                fontWeight: 600,
+              }}
+            >
+              Tạo báo cáo ngày
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1797,14 +1821,6 @@ export const DailyReportsPage: React.FC = () => {
             style={{ marginBottom: 0 }}
             items={[
               {
-                key: 'overview',
-                label: (
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>
-                    <AppstoreOutlined /> Tổng quan
-                  </span>
-                ),
-              },
-              {
                 key: 'daily',
                 label: (
                   <span style={{ fontSize: 14, fontWeight: 600 }}>
@@ -1824,6 +1840,14 @@ export const DailyReportsPage: React.FC = () => {
                     },
                   ]
                 : []),
+              {
+                key: 'overview',
+                label: (
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>
+                    <AppstoreOutlined /> Tổng quan
+                  </span>
+                ),
+              },
               {
                 key: 'project',
                 label: (

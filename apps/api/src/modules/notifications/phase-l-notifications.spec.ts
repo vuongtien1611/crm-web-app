@@ -504,13 +504,7 @@ async function runPhaseLNotificationsSuite() {
       .execute();
 
     console.log(`[NT-11 AUDIT] Concurrent requests resulted in ${concurrentRows.length} notification record(s) in DB.`);
-    if (concurrentRows.length > 1) {
-      console.log('NOTICE: Application-level check without DB unique index allows duplicates under concurrency.');
-      console.log('CANONICAL STATUS: NOTIFICATION IDEMPOTENCY = BEST-EFFORT (No migration invented).');
-    } else {
-      console.log('NOTICE: Concurrent execution serialized safely in this run.');
-    }
-    assert(concurrentRows.length >= 1, 'NT-11: At least 1 notification recorded, audited concurrency state safely');
+    assert(concurrentRows.length === 1, 'NT-11: Exactly 1 notification created under concurrency with DB idempotency key');
 
     // ----------------------------------------------------------------
     // NT-12: BUSINESS TRANSACTION ROLLBACK -> NO ORPHAN NOTIFICATION

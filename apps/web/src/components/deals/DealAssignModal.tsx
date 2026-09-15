@@ -1,31 +1,77 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Modal, Form, Select, Avatar, Button, Space, Typography, Alert } from 'antd';
+import { UserOutlined, UserSwitchOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { assignDealApi } from '../../api/deals';
+import { getEmployees, EmployeeItem } from '../../api/employees';
+
+const { Text } = Typography;
 
 interface Props {
   isOpen: boolean;
   dealId: string;
+  currentSaleId?: string | null;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export const DealAssignModal: React.FC<Props> = ({ isOpen, dealId, onClose, onSuccess }) => {
-  const [toSaleId, setToSaleId] = useState('');
+export const DealAssignModal: React.FC<Props> = ({
+  isOpen,
+  dealId,
+  currentSaleId,
+  onClose,
+  onSuccess,
+}) => {
+  const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (!isOpen) return null;
+  // Fetch sales employees
+  const { data: employeesData, isLoading: loadingEmployees } = useQuery({
+    queryKey: ['sales-employees-list'],
+    queryFn: () => getEmployees({ limit: 100 }),
+    enabled: isOpen,
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!toSaleId.trim()) {
-      setError('Vui lòng chọn ID nhân viên Sale');
+  const salesEmployees = useMemo(() => {
+    const all = employeesData?.data || [];
+    const salesOnly = all.filter((emp: EmployeeItem) => {
+      const posCode = emp.position?.code;
+      const hasSaleRole = (emp.roles || []).some(
+        (r) => r.code === 'SALE' || r.code === 'SALES_TEAM_LEADER' || r.code === 'BOSS' || r.code === 'ADMIN',
+      );
+      return (
+        posCode === 'SALE' ||
+        posCode === 'SALES_TEAM_LEADER' ||
+        posCode === 'BOSS' ||
+        posCode === 'ADMIN' ||
+        hasSaleRole
+      );
+    });
+    return salesOnly.length > 0 ? salesOnly : all;
+  }, [employeesData]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setError('');
+      if (currentSaleId) {
+        form.setFieldsValue({ toSaleId: String(currentSaleId) });
+      } else {
+        form.resetFields();
+      }
+    }
+  }, [isOpen, currentSaleId, form]);
+
+  const handleSubmit = async (values: { toSaleId: string }) => {
+    if (!values.toSaleId) {
+      setError('Vui lòng chọn họ và tên nhân viên Sale phụ trách');
       return;
     }
     setError('');
     setLoading(true);
 
     try {
-      await assignDealApi(dealId, toSaleId);
+      await assignDealApi(dealId, String(values.toSaleId));
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -36,46 +82,103 @@ export const DealAssignModal: React.FC<Props> = ({ isOpen, dealId, onClose, onSu
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 text-slate-100 shadow-2xl">
-        <h2 className="text-lg font-bold mb-4 border-b border-slate-800 pb-2">Phân công phụ trách Cơ hội</h2>
-
-        {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              ID Nhân viên Sale *
-            </label>
-            <input
-              type="number"
-              value={toSaleId}
-              onChange={(e) => setToSaleId(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              placeholder="Ví dụ: 1"
-              required
-            />
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium disabled:opacity-50"
-            >
-              {loading ? 'Đang phân công...' : 'Phân công Deal'}
-            </button>
-          </div>
-        </form>
+    <Modal
+      title={
+        <Space>
+          <UserSwitchOutlined style={{ color: '#1890ff', fontSize: 18 }} />
+          <span style={{ fontWeight: 600 }}>Phân công phụ trách Cơ hội</span>
+        </Space>
+      }
+      open={isOpen}
+      destroyOnHidden
+      onCancel={onClose}
+      footer={null}
+      afterClose={() => {
+        form.resetFields();
+        setError('');
+      }}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Chỉ định nhân viên Sale chịu trách nhiệm theo dõi và chăm sóc cơ hội bán hàng này.
+        </Text>
       </div>
-    </div>
+
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          showIcon
+          closable
+          style={{ marginBottom: 16 }}
+          onClose={() => setError('')}
+        />
+      )}
+
+      <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form.Item
+          name="toSaleId"
+          label={
+            <span style={{ fontWeight: 600 }}>
+              Họ và tên nhân viên Sale phụ trách <span style={{ color: '#ff4d4f' }}>*</span>
+            </span>
+          }
+          rules={[{ required: true, message: 'Vui lòng nhập hoặc chọn họ và tên nhân viên Sale' }]}
+        >
+          <Select
+            showSearch
+            placeholder="Nhập họ và tên hoặc mã nhân viên sale..."
+            loading={loadingEmployees}
+            allowClear
+            optionFilterProp="label"
+            filterOption={(input, option) => {
+              const label = (option?.label ?? '') as string;
+              return label.toLowerCase().includes(input.toLowerCase());
+            }}
+            options={salesEmployees.map((emp) => ({
+              value: String(emp.id),
+              label: `${emp.full_name} (${emp.employee_code})`,
+              item: emp,
+            }))}
+            optionRender={(option) => {
+              const emp = option.data.item as EmployeeItem;
+              const teamName = emp.currentTeam?.name;
+              const posName = emp.position?.name || 'Nhân viên Kinh doanh';
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+                  <Avatar size="small" icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }}>
+                    {emp.full_name?.charAt(0)}
+                  </Avatar>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                      {emp.full_name}{' '}
+                      <span style={{ fontWeight: 400, color: '#64748b', fontSize: 12 }}>
+                        ({emp.employee_code})
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      {posName} {teamName ? `• ${teamName}` : ''}
+                    </div>
+                  </div>
+                </div>
+              );
+            }}
+          />
+        </Form.Item>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
+          <Button onClick={onClose} disabled={loading}>
+            Hủy
+          </Button>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={loading}
+          >
+            Phân công Deal
+          </Button>
+        </div>
+      </Form>
+    </Modal>
   );
 };
-

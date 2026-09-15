@@ -25,6 +25,10 @@ import { PayrollDetailPage } from './pages/payroll/PayrollDetailPage';
 import { EmployeePayrollDetailPage } from './pages/payroll/EmployeePayrollDetailPage';
 import { ExpensesListPage } from './pages/expenses/ExpensesListPage';
 import { ExpenseDetailPage } from './pages/expenses/ExpenseDetailPage';
+import { FinancialOverviewPage } from './pages/finance/FinancialOverviewPage';
+import { ReceivablesPage } from './pages/finance/ReceivablesPage';
+import { CashflowPage } from './pages/finance/CashflowPage';
+import { FinancialExpensesPage } from './pages/finance/FinancialExpensesPage';
 import { EmployeesListPage } from './pages/employees/EmployeesListPage';
 import { CreateEmployeePage } from './pages/employees/CreateEmployeePage';
 import { EmployeeDetailPage } from './pages/employees/EmployeeDetailPage';
@@ -157,6 +161,7 @@ export const App: React.FC = () => {
                   {/* Common Routes */}
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/notifications" element={<NotificationsPage />} />
+                  <Route path="/reports" element={<DailyReportsPage />} />
                   <Route path="/daily-reports" element={<DailyReportsPage />} />
                   <Route path="/kpi" element={<KpiDashboardPage />} />
                   <Route path="/commissions" element={<CommissionsListPage />} />
@@ -190,6 +195,10 @@ export const App: React.FC = () => {
 
                   {/* Finance Routes (BOSS, ADMIN, ACCOUNTANT only) */}
                   <Route element={<RoleRoute allowedRoles={['ACCOUNTANT']} />}>
+                    <Route path="/finance/overview" element={<FinancialOverviewPage />} />
+                    <Route path="/finance/receivables" element={<ReceivablesPage />} />
+                    <Route path="/finance/cashflow" element={<CashflowPage />} />
+                    <Route path="/finance/expenses" element={<FinancialExpensesPage />} />
                     <Route path="/payments" element={<PaymentsListPage />} />
                     <Route path="/payments/:id" element={<PaymentDetailPage />} />
                     <Route path="/payroll" element={<PayrollListPage />} />

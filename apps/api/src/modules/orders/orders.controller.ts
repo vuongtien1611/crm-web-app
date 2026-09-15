@@ -30,6 +30,11 @@ export class OrdersController {
     private readonly teamsService: TeamsService,
   ) {}
 
+  @Get('services')
+  async getServices() {
+    return await this.ordersService.getActiveServices();
+  }
+
   @Get('orders')
   @RequirePermissions('ORDER_READ')
   async findOrders(

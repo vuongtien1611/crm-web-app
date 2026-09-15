@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Card,
   Typography,
@@ -16,7 +16,12 @@ import {
   Spin,
   Alert,
   message,
+  Dropdown,
+  Tabs,
+  Segmented,
+  Descriptions,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   CrownOutlined,
   SearchOutlined,
@@ -24,8 +29,6 @@ import {
   SwapOutlined,
   TeamOutlined,
   UserOutlined,
-  ZoomInOutlined,
-  ZoomOutOutlined,
   AimOutlined,
   UpOutlined,
   DownOutlined,
@@ -34,6 +37,13 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
   CheckCircleOutlined,
+  EllipsisOutlined,
+  EyeOutlined,
+  AppstoreOutlined,
+  BranchesOutlined,
+  ShopOutlined,
+  CodeOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ReactFlow, {
@@ -54,7 +64,6 @@ import 'reactflow/dist/style.css';
 import {
   fetchOrganizationChart,
   moveOrgChartMember,
-  changeOrgChartLeader,
   OrgChartResponse,
   OrgEmployeeCard,
   OrgTeamData,
@@ -62,20 +71,81 @@ import {
 
 const { Title, Text } = Typography;
 
-// Color palette per department
-const DEPT_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  SALES: { label: 'Kinh Doanh', color: '#0C6B37', bg: '#F2F8F4', border: '#B7DFC6' },
-  DEV: { label: 'Lập Trình / Kỹ Thuật', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
-  SEO: { label: 'Marketing / SEO', color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
-  OPERATION: { label: 'Vận Hành', color: '#4F46E5', bg: '#EEF2FF', border: '#C7D2FE' },
-  BOD: { label: 'Ban Giám Đốc', color: '#B45309', bg: '#FEF3C7', border: '#F59E0B' },
-  EXECUTIVE_SUPPORT: { label: 'Ngoài cơ cấu quản lý', color: '#6B7280', bg: '#F3F4F6', border: '#D1D5DB' },
+// Configuration per department: Colors, Labels, Icons
+export const DEPT_METADATA: Record<
+  string,
+  {
+    label: string;
+    subLabel: string;
+    color: string;
+    accent: string;
+    bg: string;
+    border: string;
+    icon: React.ReactNode;
+  }
+> = {
+  SALES: {
+    label: 'PHÒNG KINH DOANH',
+    subLabel: 'Khối Sales & Phát Triển Doanh Thu',
+    color: '#0C6B37',
+    accent: '#10B981',
+    bg: '#F0FDF4',
+    border: '#BBF7D0',
+    icon: <ShopOutlined />,
+  },
+  DEV: {
+    label: 'PHÒNG KỸ THUẬT & LẬP TRÌNH',
+    subLabel: 'Khối Công Nghệ & Phát Triển Phần Mềm',
+    color: '#1D4ED8',
+    accent: '#3B82F6',
+    bg: '#EFF6FF',
+    border: '#BFDBFE',
+    icon: <CodeOutlined />,
+  },
+  SEO: {
+    label: 'PHÒNG MARKETING & SEO',
+    subLabel: 'Khối Tối Ưu Hóa Tìm Kiếm & Nội Dung',
+    color: '#D97706',
+    accent: '#F59E0B',
+    bg: '#FFFBEB',
+    border: '#FDE68A',
+    icon: <LineChartOutlined />,
+  },
+  OPERATION: {
+    label: 'PHÒNG VẬN HÀNH',
+    subLabel: 'Khối Vận Hành Doanh Nghiệp',
+    color: '#4F46E5',
+    accent: '#6366F1',
+    bg: '#EEF2FF',
+    border: '#C7D2FE',
+    icon: <ApartmentOutlined />,
+  },
+  BOD: {
+    label: 'BAN GIÁM ĐỐC (BOD)',
+    subLabel: 'Khối Điều Hành Cấp Cao',
+    color: '#B45309',
+    accent: '#F59E0B',
+    bg: '#FEF3C7',
+    border: '#FDE68A',
+    icon: <CrownOutlined />,
+  },
+};
+
+const DEFAULT_DEPT = {
+  label: 'PHÒNG BAN',
+  subLabel: 'Đơn Vị Chuyên Môn',
+  color: '#4B5563',
+  accent: '#6B7280',
+  bg: '#F3F4F6',
+  border: '#E5E7EB',
+  icon: <TeamOutlined />,
 };
 
 // ============================================================================
 // 1. CUSTOM REACT FLOW NODES
 // ============================================================================
 
+// --- 1.1. BOSS NODE (Level 0) ---
 interface BossNodeData {
   boss: OrgEmployeeCard;
   isSearchMatch?: boolean;
@@ -86,17 +156,17 @@ const BossNode: React.FC<{ data: BossNodeData }> = ({ data }) => {
   return (
     <div
       style={{
-        width: 320,
+        width: 340,
         background: 'linear-gradient(135deg, #FFFDF5 0%, #FFFFFF 100%)',
         borderRadius: 16,
-        border: isSearchMatch ? '3px solid #f59e0b' : '2px solid #D97706',
+        border: isSearchMatch ? '3px solid #F59E0B' : '2px solid #D97706',
         boxShadow: isSearchMatch
-          ? '0 0 20px rgba(245, 158, 11, 0.4)'
-          : '0 10px 25px -5px rgba(217, 119, 6, 0.15)',
-        padding: 16,
+          ? '0 0 24px rgba(245, 158, 11, 0.45)'
+          : '0 12px 28px -6px rgba(217, 119, 6, 0.2)',
+        padding: '16px 18px',
         position: 'relative',
         cursor: 'default',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        transition: 'all 0.3s ease',
       }}
     >
       <div
@@ -107,15 +177,15 @@ const BossNode: React.FC<{ data: BossNodeData }> = ({ data }) => {
           transform: 'translateX(-50%)',
           background: 'linear-gradient(135deg, #F59E0B, #D97706)',
           color: '#FFF',
-          padding: '2px 14px',
+          padding: '3px 16px',
           borderRadius: 20,
           fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '0.5px',
+          fontWeight: 800,
+          letterSpacing: '0.6px',
           display: 'flex',
           alignItems: 'center',
-          gap: 4,
-          boxShadow: '0 2px 6px rgba(217, 119, 6, 0.3)',
+          gap: 6,
+          boxShadow: '0 2px 8px rgba(217, 119, 6, 0.35)',
         }}
       >
         <CrownOutlined style={{ fontSize: 13, color: '#FEF3C7' }} /> TỔNG GIÁM ĐỐC (BOSS)
@@ -123,13 +193,13 @@ const BossNode: React.FC<{ data: BossNodeData }> = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4 }}>
         <Avatar
-          size={54}
+          size={56}
           style={{
             background: 'linear-gradient(135deg, #D97706 0%, #92400E 100%)',
             color: '#FFF',
             fontSize: 22,
             fontWeight: 800,
-            boxShadow: '0 4px 10px rgba(217, 119, 6, 0.25)',
+            boxShadow: '0 4px 12px rgba(217, 119, 6, 0.3)',
           }}
         >
           {boss.fullName.charAt(0).toUpperCase()}
@@ -158,55 +228,187 @@ const BossNode: React.FC<{ data: BossNodeData }> = ({ data }) => {
         </div>
       </div>
 
+      {/* Source handle connecting down to Departments */}
       <Handle
         type="source"
         position={Position.Bottom}
         style={{
           background: '#D97706',
-          width: 10,
-          height: 10,
+          width: 12,
+          height: 12,
           border: '2px solid #FFF',
+          bottom: -6,
         }}
       />
     </div>
   );
 };
 
+// --- 1.2. DEPARTMENT NODE (Level 1 - Intermediate) ---
+interface DepartmentNodeData {
+  department: string;
+  label: string;
+  subLabel: string;
+  color: string;
+  bg: string;
+  border: string;
+  icon: React.ReactNode;
+  teamCount: number;
+  memberCount: number;
+  isSearchMatch?: boolean;
+}
+
+const DepartmentNode: React.FC<{ data: DepartmentNodeData }> = ({ data }) => {
+  const { label, subLabel, color, bg, border, icon, teamCount, memberCount, isSearchMatch } = data;
+
+  return (
+    <div
+      style={{
+        width: 320,
+        background: '#FFFFFF',
+        borderRadius: 14,
+        border: isSearchMatch ? `2.5px solid ${color}` : `2px solid ${border}`,
+        boxShadow: '0 8px 20px -4px rgba(0, 0, 0, 0.08)',
+        overflow: 'hidden',
+        position: 'relative',
+        transition: 'all 0.25s ease',
+      }}
+    >
+      {/* Target handle from BOSS */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{
+          background: color,
+          width: 10,
+          height: 10,
+          border: '2px solid #FFF',
+          top: -5,
+        }}
+      />
+
+      {/* Header Banner */}
+      <div
+        style={{
+          background: bg,
+          borderBottom: `1.5px solid ${border}`,
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: color,
+            color: '#FFF',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 18,
+            boxShadow: `0 3px 8px ${color}40`,
+          }}
+        >
+          {icon}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color, letterSpacing: '0.5px' }}>
+            {label}
+          </div>
+          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>{subLabel}</div>
+        </div>
+      </div>
+
+      {/* Stats Summary */}
+      <div
+        style={{
+          padding: '10px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-around',
+          background: '#FAFCFA',
+        }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          <Text style={{ fontSize: 11, color: '#6B7280', display: 'block' }}>Số lượng Team</Text>
+          <Text strong style={{ fontSize: 16, color: '#18211C' }}>
+            {teamCount}
+          </Text>
+        </div>
+        <div style={{ width: 1, height: 24, background: '#E5E7EB' }} />
+        <div style={{ textAlign: 'center' }}>
+          <Text style={{ fontSize: 11, color: '#6B7280', display: 'block' }}>Tổng Nhân Sự</Text>
+          <Text strong style={{ fontSize: 16, color }}>
+            {memberCount}
+          </Text>
+        </div>
+      </div>
+
+      {/* Source handle connecting down to Teams */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{
+          background: color,
+          width: 10,
+          height: 10,
+          border: '2px solid #FFF',
+          bottom: -5,
+        }}
+      />
+    </div>
+  );
+};
+
+// --- 1.3. TEAM NODE (Level 2) ---
 interface TeamNodeData {
   team: OrgTeamData;
   isCollapsed: boolean;
   onToggleCollapse: (teamId: string) => void;
-  onOpenChangeLeaderModal: (team: OrgTeamData) => void;
   onDragStartMember: (member: OrgEmployeeCard, sourceTeam: OrgTeamData) => void;
   onDropMemberOnTeam: (targetTeam: OrgTeamData) => void;
   draggedMember: { employee: OrgEmployeeCard; sourceTeam: OrgTeamData } | null;
   isDragOver: boolean;
   onDragEnterTeam: (teamId: string) => void;
   onDragLeaveTeam: (teamId: string) => void;
+  onOpenMemberDetail: (member: OrgEmployeeCard, team: OrgTeamData) => void;
+  onOpenMoveModal: (member: OrgEmployeeCard, team: OrgTeamData) => void;
   searchKeyword?: string;
 }
 
-const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
-  const {
-    team,
-    isCollapsed,
-    onToggleCollapse,
-    onOpenChangeLeaderModal,
-    onDragStartMember,
-    onDropMemberOnTeam,
-    draggedMember,
-    isDragOver,
-    onDragEnterTeam,
-    onDragLeaveTeam,
-    searchKeyword = '',
-  } = data;
-
-  const deptConf = DEPT_CONFIG[team.department.toUpperCase()] || {
-    label: team.department,
-    color: '#0C6B37',
-    bg: '#F2F8F4',
-    border: '#DDE7E1',
-  };
+export const TeamCardView: React.FC<{
+  team: OrgTeamData;
+  isCollapsed: boolean;
+  onToggleCollapse: (teamId: string) => void;
+  onDragStartMember: (member: OrgEmployeeCard, sourceTeam: OrgTeamData) => void;
+  onDropMemberOnTeam: (targetTeam: OrgTeamData) => void;
+  draggedMember: { employee: OrgEmployeeCard; sourceTeam: OrgTeamData } | null;
+  isDragOver: boolean;
+  onDragEnterTeam: (teamId: string) => void;
+  onDragLeaveTeam: (teamId: string) => void;
+  onOpenMemberDetail: (member: OrgEmployeeCard, team: OrgTeamData) => void;
+  onOpenMoveModal: (member: OrgEmployeeCard, team: OrgTeamData) => void;
+  searchKeyword?: string;
+  hasHandle?: boolean;
+}> = ({
+  team,
+  isCollapsed,
+  onToggleCollapse,
+  onDragStartMember,
+  onDropMemberOnTeam,
+  draggedMember,
+  isDragOver,
+  onDragEnterTeam,
+  onDragLeaveTeam,
+  onOpenMemberDetail,
+  onOpenMoveModal,
+  searchKeyword = '',
+  hasHandle = false,
+}) => {
+  const deptConf = DEPT_METADATA[team.department.toUpperCase()] || DEFAULT_DEPT;
 
   const isCrossDeptWithDragged =
     draggedMember &&
@@ -216,7 +418,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
   const isSameTeamWithDragged =
     draggedMember && String(draggedMember.sourceTeam.id) === String(team.id);
 
-  // Target team khác department KHÔNG cho phép drop
+  // Target team must be in the same department and not the source team
   const canDropHere = Boolean(draggedMember && !isSameTeamWithDragged && !isCrossDeptWithDragged);
 
   const isTeamMatch =
@@ -224,6 +426,25 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
     (team.name.toLowerCase().includes(searchKeyword.toLowerCase()) ||
       team.code.toLowerCase().includes(searchKeyword.toLowerCase()) ||
       (team.leader && team.leader.fullName.toLowerCase().includes(searchKeyword.toLowerCase())));
+
+  // Style adjustments when dragging
+  let cardBorder = '1px solid #DDE7E1';
+  let cardBg = '#FFFFFF';
+  let cardOpacity = 1;
+
+  if (draggedMember) {
+    if (isSameTeamWithDragged) {
+      cardOpacity = 0.7;
+    } else if (isCrossDeptWithDragged) {
+      cardOpacity = 0.45;
+      cardBorder = '1px dashed #D1D5DB';
+    } else if (canDropHere) {
+      cardBorder = isDragOver ? '2px dashed #0C6B37' : '1.5px dashed #10B981';
+      cardBg = isDragOver ? '#F0FDF4' : '#FAFCFA';
+    }
+  } else if (isTeamMatch) {
+    cardBorder = '2px solid #F59E0B';
+  }
 
   return (
     <div
@@ -242,7 +463,9 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
       onDrop={(e) => {
         e.preventDefault();
         if (isCrossDeptWithDragged) {
-          message.warning('Chưa hỗ trợ điều chuyển liên phòng ban (CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED)');
+          message.warning(
+            'Chưa hỗ trợ điều chuyển liên phòng ban (CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED)',
+          );
           return;
         }
         if (canDropHere) {
@@ -251,34 +474,31 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
       }}
       style={{
         width: 330,
-        background: '#FFFFFF',
+        background: cardBg,
+        opacity: cardOpacity,
         borderRadius: 16,
-        border: isDragOver
-          ? canDropHere
-            ? '2px dashed #0C6B37'
-            : '2px dashed #EF4444'
-          : isTeamMatch
-          ? '2px solid #F59E0B'
-          : '1px solid #DDE7E1',
-        boxShadow: isDragOver
-          ? canDropHere
-            ? '0 0 20px rgba(12, 107, 55, 0.25)'
-            : '0 0 20px rgba(239, 68, 68, 0.25)'
+        border: cardBorder,
+        boxShadow: isDragOver && canDropHere
+          ? '0 0 22px rgba(12, 107, 55, 0.3)'
           : '0 8px 24px -4px rgba(0, 0, 0, 0.06)',
         overflow: 'hidden',
+        position: 'relative',
         transition: 'all 0.25s ease',
       }}
     >
-      <Handle
-        type="target"
-        position={Position.Top}
-        style={{
-          background: deptConf.color,
-          width: 10,
-          height: 10,
-          border: '2px solid #FFF',
-        }}
-      />
+      {hasHandle && (
+        <Handle
+          type="target"
+          position={Position.Top}
+          style={{
+            background: deptConf.color,
+            width: 10,
+            height: 10,
+            border: '2px solid #FFF',
+            top: -5,
+          }}
+        />
+      )}
 
       {/* Team Header */}
       <div
@@ -304,6 +524,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
               justifyContent: 'center',
               fontSize: 14,
               fontWeight: 700,
+              flexShrink: 0,
             }}
           >
             <TeamOutlined />
@@ -338,7 +559,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Badge
-            count={team.memberCount}
+            count={team.members.length + (team.leader ? 1 : 0)}
             overflowCount={99}
             style={{
               backgroundColor: deptConf.color,
@@ -347,17 +568,19 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
               fontWeight: 700,
             }}
           />
-          <Button
-            type="text"
-            size="small"
-            icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
-            onClick={() => onToggleCollapse(team.id)}
-            style={{ color: '#66736B' }}
-          />
+          <Tooltip title={isCollapsed ? 'Mở rộng thành viên' : 'Thu gọn thành viên'}>
+            <Button
+              type="text"
+              size="small"
+              icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
+              onClick={() => onToggleCollapse(team.id)}
+              style={{ color: '#66736B' }}
+            />
+          </Tooltip>
         </div>
       </div>
 
-      {/* Drop Zone Visual Highlight Indicator */}
+      {/* Drag Over Indicators */}
       {isDragOver && isCrossDeptWithDragged && (
         <div
           style={{
@@ -373,7 +596,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
             fontWeight: 700,
           }}
         >
-          <WarningOutlined /> Chưa hỗ trợ điều chuyển liên phòng ban
+          <WarningOutlined /> Không thể chuyển liên phòng ban
         </div>
       )}
 
@@ -396,7 +619,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
         </div>
       )}
 
-      {/* Team Leader Section */}
+      {/* Team Leader Section (Fixed, not draggable) */}
       <div style={{ padding: 12, borderBottom: '1px solid #EEF4F0' }}>
         <div
           style={{
@@ -416,7 +639,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
               gap: 4,
             }}
           >
-            <CrownOutlined style={{ color: '#F59E0B' }} /> TRƯỞNG NHÓM (LEADER)
+            <CrownOutlined style={{ color: '#F59E0B' }} /> TRƯỞNG TEAM (CỐ ĐỊNH)
           </div>
           <Tooltip title="Chưa hỗ trợ: TEAM_LEADER_ROLE_POLICY_NOT_DEFINED (Chưa có chính sách đồng bộ role/position khi đổi Trưởng nhóm)">
             <Button
@@ -456,6 +679,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
                 color: '#FFF',
                 fontWeight: 700,
                 fontSize: 14,
+                flexShrink: 0,
               }}
             >
               {team.leader.fullName.charAt(0).toUpperCase()}
@@ -469,8 +693,24 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
                   {team.leader.employeeCode}
                 </Tag>
               </div>
-              <div style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>
-                {team.leader.positionName || 'Trưởng nhóm'}
+              <div
+                style={{
+                  fontSize: 11,
+                  color: '#92400E',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginTop: 2,
+                }}
+              >
+                <span>{team.leader.positionName || 'Trưởng nhóm'}</span>
+                <Tag
+                  color="success"
+                  style={{ margin: 0, fontSize: 9, padding: '0 3px', lineHeight: '14px' }}
+                >
+                  {team.leader.status === 'ACTIVE' ? 'Hoạt động' : team.leader.status}
+                </Tag>
               </div>
             </div>
           </div>
@@ -491,7 +731,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
         )}
       </div>
 
-      {/* Members Section (Collapsible) */}
+      {/* Members Section (Collapsible & Draggable) */}
       {!isCollapsed && (
         <div style={{ padding: 12, background: '#FAFCFA' }}>
           <div
@@ -502,10 +742,11 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
               marginBottom: 8,
               display: 'flex',
               justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
             <span>THÀNH VIÊN ({team.members.length})</span>
-            <span style={{ fontSize: 10, color: '#9CA3AF' }}>Kéo thẻ để chuyển</span>
+            <span style={{ fontSize: 10, color: '#9CA3AF' }}>Kéo hoặc click ... để chuyển</span>
           </div>
 
           {team.members.length === 0 ? (
@@ -523,7 +764,16 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
               Chưa có thành viên
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                maxHeight: 280,
+                overflowY: 'auto',
+                paddingRight: 2,
+              }}
+            >
               {team.members.map((member) => {
                 const isMemberMatch =
                   searchKeyword &&
@@ -531,6 +781,21 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
                     member.employeeCode.toLowerCase().includes(searchKeyword.toLowerCase()) ||
                     (member.positionName &&
                       member.positionName.toLowerCase().includes(searchKeyword.toLowerCase())));
+
+                const menuItems: MenuProps['items'] = [
+                  {
+                    key: 'detail',
+                    icon: <EyeOutlined />,
+                    label: 'Xem chi tiết nhân sự',
+                    onClick: () => onOpenMemberDetail(member, team),
+                  },
+                  {
+                    key: 'move',
+                    icon: <SwapOutlined style={{ color: '#0C6B37' }} />,
+                    label: <span style={{ color: '#0C6B37', fontWeight: 600 }}>Chuyển Team</span>,
+                    onClick: () => onOpenMoveModal(member, team),
+                  },
+                ];
 
                 return (
                   <div
@@ -553,7 +818,7 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
                       boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#0C6B37';
+                      e.currentTarget.style.borderColor = deptConf.color;
                       e.currentTarget.style.transform = 'translateY(-1px)';
                       e.currentTarget.style.boxShadow = '0 3px 8px rgba(0,0,0,0.08)';
                     }}
@@ -595,18 +860,34 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
                           marginTop: 2,
                         }}
                       >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
                           {member.positionName || 'Nhân viên'}
                         </span>
-                        <Tag color="success" style={{ margin: 0, fontSize: 9, padding: '0 3px', lineHeight: '14px' }}>
+                        <Tag
+                          color="success"
+                          style={{ margin: 0, fontSize: 9, padding: '0 3px', lineHeight: '14px' }}
+                        >
                           {member.status === 'ACTIVE' ? 'Hoạt động' : member.status}
                         </Tag>
                       </div>
                     </div>
 
-                    <div style={{ color: '#9CA3AF', fontSize: 13, cursor: 'grab' }}>
-                      <SwapOutlined />
-                    </div>
+                    {/* Action Menu button */}
+                    <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EllipsisOutlined />}
+                        style={{ color: '#9CA3AF' }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Dropdown>
                   </div>
                 );
               })}
@@ -618,8 +899,13 @@ const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
   );
 };
 
+const TeamNode: React.FC<{ data: TeamNodeData }> = ({ data }) => {
+  return <TeamCardView {...data} hasHandle={true} />;
+};
+
 const nodeTypes = {
   bossNode: BossNode,
+  deptNode: DepartmentNode,
   teamNode: TeamNode,
 };
 
@@ -631,9 +917,13 @@ export const OrganizationChartPageContent: React.FC = () => {
   const queryClient = useQueryClient();
   const reactFlowInstance = useReactFlow();
 
-  // Search & Filter State
+  // View Mode: 'tree' (Hierarchical Flow) or 'grid' (Dashboard Responsive Grid)
+  const [viewMode, setViewMode] = useState<'tree' | 'grid'>('tree');
+
+  // Search & Filter State - Default to 'SALES' tab as recommended to avoid canvas sprawl
   const [searchKeyword, setSearchKeyword] = useState<string>('');
-  const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('SALES');
+  const [teamFilterId, setTeamFilterId] = useState<string>('ALL');
 
   // Collapse State for teams
   const [collapsedTeamIds, setCollapsedTeamIds] = useState<Set<string>>(new Set());
@@ -643,10 +933,9 @@ export const OrganizationChartPageContent: React.FC = () => {
     employee: OrgEmployeeCard;
     sourceTeam: OrgTeamData;
   } | null>(null);
-
   const [dragOverTeamId, setDragOverTeamId] = useState<string | null>(null);
 
-  // Modals
+  // Modals & Drawers
   const [confirmMoveModalOpen, setConfirmMoveModalOpen] = useState(false);
   const [pendingMoveData, setPendingMoveData] = useState<{
     employee: OrgEmployeeCard;
@@ -655,10 +944,22 @@ export const OrganizationChartPageContent: React.FC = () => {
   } | null>(null);
   const [moveReason, setMoveReason] = useState<string>('');
 
-  const [changeLeaderModalOpen, setChangeLeaderModalOpen] = useState(false);
-  const [selectedTeamForLeader, setSelectedTeamForLeader] = useState<OrgTeamData | null>(null);
-  const [selectedNewLeaderId, setSelectedNewLeaderId] = useState<string | null>(null);
+  // Action: Move member without dragging
+  const [manualMoveModalOpen, setManualMoveModalOpen] = useState(false);
+  const [selectedMemberToMove, setSelectedMemberToMove] = useState<{
+    employee: OrgEmployeeCard;
+    sourceTeam: OrgTeamData;
+  } | null>(null);
+  const [manualTargetTeamId, setManualTargetTeamId] = useState<string | null>(null);
+  const [manualMoveReason, setManualMoveReason] = useState<string>('');
 
+  // Drawer: Member detail
+  const [selectedMemberForDetail, setSelectedMemberForDetail] = useState<{
+    employee: OrgEmployeeCard;
+    team: OrgTeamData;
+  } | null>(null);
+
+  // Drawer: External Staff
   const [externalStaffDrawerOpen, setExternalStaffDrawerOpen] = useState(false);
 
   // -------------------------------------------------------------
@@ -670,7 +971,7 @@ export const OrganizationChartPageContent: React.FC = () => {
   });
 
   // -------------------------------------------------------------
-  // MUTATIONS (MOVE MEMBER & CHANGE LEADER)
+  // MUTATIONS (MOVE MEMBER)
   // -------------------------------------------------------------
   const moveMutation = useMutation({
     mutationFn: moveOrgChartMember,
@@ -680,25 +981,15 @@ export const OrganizationChartPageContent: React.FC = () => {
       setConfirmMoveModalOpen(false);
       setPendingMoveData(null);
       setMoveReason('');
+      setManualMoveModalOpen(false);
+      setSelectedMemberToMove(null);
+      setManualTargetTeamId(null);
+      setManualMoveReason('');
       setDraggedMember(null);
       setDragOverTeamId(null);
     },
     onError: (err: any) => {
       message.error(err.message || 'Không thể chuyển nhóm cho nhân viên');
-    },
-  });
-
-  const changeLeaderMutation = useMutation({
-    mutationFn: changeOrgChartLeader,
-    onSuccess: (data) => {
-      message.success(data.message || 'Bổ nhiệm Trưởng nhóm thành công');
-      queryClient.invalidateQueries({ queryKey: ['organization-chart'] });
-      setChangeLeaderModalOpen(false);
-      setSelectedTeamForLeader(null);
-      setSelectedNewLeaderId(null);
-    },
-    onError: (err: any) => {
-      message.error(err.message || 'Không thể đổi trưởng nhóm');
     },
   });
 
@@ -765,7 +1056,7 @@ export const OrganizationChartPageContent: React.FC = () => {
         return;
       }
 
-      // Open confirm modal with source & target details
+      // Open confirm modal
       setPendingMoveData({
         employee: draggedMember.employee,
         sourceTeam: draggedMember.sourceTeam,
@@ -786,25 +1077,77 @@ export const OrganizationChartPageContent: React.FC = () => {
     });
   };
 
-  const handleOpenChangeLeaderModal = useCallback((team: OrgTeamData) => {
-    setSelectedTeamForLeader(team);
-    setSelectedNewLeaderId(null);
-    setChangeLeaderModalOpen(true);
-  }, []);
+  // Open direct Move Modal (from "..." menu)
+  const handleOpenMoveModal = useCallback(
+    (member: OrgEmployeeCard, team: OrgTeamData) => {
+      setSelectedMemberToMove({ employee: member, sourceTeam: team });
+      setManualTargetTeamId(null);
+      setManualMoveReason('');
+      setManualMoveModalOpen(true);
+    },
+    [],
+  );
 
-  const handleConfirmChangeLeader = () => {
-    if (!selectedTeamForLeader || !selectedNewLeaderId) {
-      message.warning('Vui lòng chọn nhân viên làm Trưởng nhóm mới');
+  const handleConfirmManualMove = () => {
+    if (!selectedMemberToMove || !manualTargetTeamId) {
+      message.warning('Vui lòng chọn Team đích tiếp nhận');
       return;
     }
-    changeLeaderMutation.mutate({
-      teamId: selectedTeamForLeader.id,
-      newLeaderEmployeeId: selectedNewLeaderId,
+    moveMutation.mutate({
+      employeeId: selectedMemberToMove.employee.employeeId,
+      targetTeamId: manualTargetTeamId,
+      reason: manualMoveReason.trim() || undefined,
     });
   };
 
+  // Open Member Detail Drawer
+  const handleOpenMemberDetail = useCallback(
+    (member: OrgEmployeeCard, team: OrgTeamData) => {
+      setSelectedMemberForDetail({ employee: member, team });
+    },
+    [],
+  );
+
+  // Group teams by department
+  const groupedDepartments = useMemo(() => {
+    if (!chartData?.teams) return [];
+
+    const depts = ['SALES', 'DEV', 'SEO'];
+    return depts.map((dKey) => {
+      const teamsInDept = chartData.teams.filter(
+        (t) => t.department.toUpperCase() === dKey.toUpperCase(),
+      );
+      const totalMembers = teamsInDept.reduce(
+        (acc, t) => acc + t.members.length + (t.leader ? 1 : 0),
+        0,
+      );
+      const meta = DEPT_METADATA[dKey] || DEFAULT_DEPT;
+      return {
+        key: dKey,
+        ...meta,
+        teams: teamsInDept,
+        teamCount: teamsInDept.length,
+        memberCount: totalMembers,
+      };
+    });
+  }, [chartData]);
+
+  // Candidates for manual move (same department, excluding source team)
+  const eligibleManualTargetTeams = useMemo(() => {
+    if (!selectedMemberToMove || !chartData?.teams) return [];
+    return chartData.teams.filter(
+      (t) =>
+        t.department.toUpperCase() ===
+          selectedMemberToMove.sourceTeam.department.toUpperCase() &&
+        String(t.id) !== String(selectedMemberToMove.sourceTeam.id),
+    );
+  }, [selectedMemberToMove, chartData]);
+
   // -------------------------------------------------------------
-  // BUILD NODES AND EDGES FOR REACT FLOW
+  // BUILD HIERARCHICAL NODES AND EDGES FOR REACT FLOW
+  // Level 0: BOSS
+  // Level 1: Department Nodes (SALES, DEV, SEO)
+  // Level 2: Team Nodes under each Department
   // -------------------------------------------------------------
   const { nodes, edges } = useMemo(() => {
     if (!chartData || !chartData.boss) {
@@ -814,10 +1157,10 @@ export const OrganizationChartPageContent: React.FC = () => {
     const flowNodes: Node[] = [];
     const flowEdges: Edge[] = [];
 
-    // Filter teams by department
-    const visibleTeams = chartData.teams.filter((t) => {
+    // Filter departments to display
+    const visibleDepts = groupedDepartments.filter((dept) => {
       if (departmentFilter === 'ALL') return true;
-      return t.department.toUpperCase() === departmentFilter.toUpperCase();
+      return dept.key.toUpperCase() === departmentFilter.toUpperCase();
     });
 
     const isBossSearchMatch =
@@ -827,102 +1170,211 @@ export const OrganizationChartPageContent: React.FC = () => {
         (chartData.boss.positionName &&
           chartData.boss.positionName.toLowerCase().includes(searchKeyword.toLowerCase())));
 
-    // Calculate layout coordinates
-    const TEAM_CARD_WIDTH = 330;
-    const HORIZONTAL_GAP = 50;
-    const VERTICAL_LEVEL_1 = 200;
+    // Layout configuration
+    const TEAM_WIDTH = 330;
+    const TEAM_GAP_X = 32;
+    const TEAM_GAP_Y = 36;
+    const TEAM_EST_HEIGHT = 420;
+    const DEPT_WIDTH = 320;
+    const DEPT_GAP_X = 64;
 
-    const totalWidth =
-      visibleTeams.length * TEAM_CARD_WIDTH + Math.max(0, visibleTeams.length - 1) * HORIZONTAL_GAP;
-    const startX = -(totalWidth / 2) + TEAM_CARD_WIDTH / 2;
+    const BOSS_Y = 30;
+    const DEPT_Y = 220;
+    const TEAMS_START_Y = 400;
 
-    // 1. Root Node: BOSS
+    // Calculate columns per department branch
+    const branchConfigs = visibleDepts.map((dept) => {
+      // Filter teams by search & team filter
+      const filteredTeams = dept.teams.filter((t) => {
+        if (teamFilterId !== 'ALL' && String(t.id) !== String(teamFilterId)) return false;
+        if (!searchKeyword) return true;
+        const kw = searchKeyword.toLowerCase();
+        const teamMatch =
+          t.name.toLowerCase().includes(kw) ||
+          t.code.toLowerCase().includes(kw) ||
+          (t.leader && t.leader.fullName.toLowerCase().includes(kw));
+        const memberMatch = t.members.some(
+          (m) =>
+            m.fullName.toLowerCase().includes(kw) ||
+            m.employeeCode.toLowerCase().includes(kw) ||
+            (m.positionName && m.positionName.toLowerCase().includes(kw)),
+        );
+        return teamMatch || memberMatch;
+      });
+
+      const cols =
+        visibleDepts.length === 1
+          ? Math.max(1, Math.min(filteredTeams.length, 3))
+          : Math.max(1, Math.min(filteredTeams.length, 2));
+
+      const branchWidth = Math.max(
+        DEPT_WIDTH,
+        cols * TEAM_WIDTH + Math.max(0, cols - 1) * TEAM_GAP_X,
+      );
+
+      return {
+        dept,
+        filteredTeams,
+        cols,
+        branchWidth,
+      };
+    });
+
+    // Total width across all department branches
+    const totalBranchesWidth =
+      branchConfigs.reduce((sum, b) => sum + b.branchWidth, 0) +
+      Math.max(0, branchConfigs.length - 1) * DEPT_GAP_X;
+
+    let currentBranchLeft = -totalBranchesWidth / 2;
+
+    // 1. Root Node: BOSS (Level 0)
     flowNodes.push({
       id: 'node-boss',
       type: 'bossNode',
-      position: { x: -160, y: 20 },
+      position: { x: -170, y: BOSS_Y },
       data: {
         boss: chartData.boss,
         isSearchMatch: Boolean(isBossSearchMatch),
       },
     });
 
-    // 2. Team Nodes & Connecting Edges
-    visibleTeams.forEach((team, index) => {
-      const nodeX = startX + index * (TEAM_CARD_WIDTH + HORIZONTAL_GAP) - TEAM_CARD_WIDTH / 2;
-      const nodeY = VERTICAL_LEVEL_1;
+    // 2. Department Nodes (Level 1) & Team Nodes (Level 2)
+    branchConfigs.forEach(({ dept, filteredTeams, cols, branchWidth }) => {
+      const branchCenter = currentBranchLeft + branchWidth / 2;
+      const deptNodeX = branchCenter - DEPT_WIDTH / 2;
 
+      // Add Department Node
       flowNodes.push({
-        id: `node-team-${team.id}`,
-        type: 'teamNode',
-        position: { x: nodeX, y: nodeY },
+        id: `node-dept-${dept.key}`,
+        type: 'deptNode',
+        position: { x: deptNodeX, y: DEPT_Y },
         data: {
-          team,
-          isCollapsed: collapsedTeamIds.has(team.id),
-          onToggleCollapse: handleToggleCollapse,
-          onOpenChangeLeaderModal: handleOpenChangeLeaderModal,
-          onDragStartMember: handleDragStartMember,
-          onDropMemberOnTeam: handleDropMemberOnTeam,
-          draggedMember,
-          isDragOver: dragOverTeamId === team.id,
-          onDragEnterTeam: handleDragEnterTeam,
-          onDragLeaveTeam: handleDragLeaveTeam,
-          searchKeyword,
+          department: dept.key,
+          label: dept.label,
+          subLabel: dept.subLabel,
+          color: dept.color,
+          bg: dept.bg,
+          border: dept.border,
+          icon: dept.icon,
+          teamCount: dept.teamCount,
+          memberCount: dept.memberCount,
+          isSearchMatch: false,
         },
       });
 
-      // Edge from BOSS to Team Node
-      const deptConf = DEPT_CONFIG[team.department.toUpperCase()] || { color: '#0C6B37' };
+      // Edge from BOSS to Department Node
       flowEdges.push({
-        id: `edge-boss-team-${team.id}`,
+        id: `edge-boss-dept-${dept.key}`,
         source: 'node-boss',
-        target: `node-team-${team.id}`,
+        target: `node-dept-${dept.key}`,
         type: 'smoothstep',
-        style: { stroke: deptConf.color, strokeWidth: 2 },
+        style: { stroke: dept.color, strokeWidth: 2.5 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           width: 14,
           height: 14,
-          color: deptConf.color,
+          color: dept.color,
         },
       });
+
+      // Calculate teams starting X so that teams grid is centered inside the department branch
+      const teamsGridWidth = cols * TEAM_WIDTH + Math.max(0, cols - 1) * TEAM_GAP_X;
+      const teamsStartLeft = branchCenter - teamsGridWidth / 2;
+
+      // Add Team Nodes under this Department
+      filteredTeams.forEach((team, tIdx) => {
+        const row = Math.floor(tIdx / cols);
+        const col = tIdx % cols;
+        const nodeX = teamsStartLeft + col * (TEAM_WIDTH + TEAM_GAP_X);
+        const nodeY = TEAMS_START_Y + row * (TEAM_EST_HEIGHT + TEAM_GAP_Y);
+
+        flowNodes.push({
+          id: `node-team-${team.id}`,
+          type: 'teamNode',
+          position: { x: nodeX, y: nodeY },
+          data: {
+            team,
+            isCollapsed: collapsedTeamIds.has(team.id),
+            onToggleCollapse: handleToggleCollapse,
+            onDragStartMember: handleDragStartMember,
+            onDropMemberOnTeam: handleDropMemberOnTeam,
+            draggedMember,
+            isDragOver: dragOverTeamId === team.id,
+            onDragEnterTeam: handleDragEnterTeam,
+            onDragLeaveTeam: handleDragLeaveTeam,
+            onOpenMemberDetail: handleOpenMemberDetail,
+            onOpenMoveModal: handleOpenMoveModal,
+            searchKeyword,
+          },
+        });
+
+        // Edge from Department Node to Team Node
+        flowEdges.push({
+          id: `edge-dept-${dept.key}-team-${team.id}`,
+          source: `node-dept-${dept.key}`,
+          target: `node-team-${team.id}`,
+          type: 'smoothstep',
+          style: { stroke: dept.border, strokeWidth: 1.8 },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 12,
+            height: 12,
+            color: dept.color,
+          },
+        });
+      });
+
+      currentBranchLeft += branchWidth + DEPT_GAP_X;
     });
 
     return { nodes: flowNodes, edges: flowEdges };
   }, [
     chartData,
+    groupedDepartments,
     departmentFilter,
+    teamFilterId,
     collapsedTeamIds,
     searchKeyword,
     draggedMember,
     dragOverTeamId,
     handleToggleCollapse,
-    handleOpenChangeLeaderModal,
     handleDragStartMember,
     handleDropMemberOnTeam,
     handleDragEnterTeam,
     handleDragLeaveTeam,
+    handleOpenMemberDetail,
+    handleOpenMoveModal,
   ]);
 
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(edges);
 
-  // Sync state when nodes/edges recalculate
-  React.useEffect(() => {
+  useEffect(() => {
     setRfNodes(nodes);
   }, [nodes, setRfNodes]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setRfEdges(edges);
   }, [edges, setRfEdges]);
 
-  // Candidates for leader replacement in the selected team
-  const eligibleLeaderCandidates = useMemo(() => {
-    if (!selectedTeamForLeader || !chartData) return [];
-    // Regular members of the team + all eligible employees from externalStaff/members
-    const teamMembers = selectedTeamForLeader.members || [];
-    return teamMembers;
-  }, [selectedTeamForLeader, chartData]);
+  // Fit View helper
+  const handleFitView = useCallback(() => {
+    try {
+      reactFlowInstance.fitView({ padding: 0.15, duration: 400 });
+    } catch {
+      // ignore
+    }
+  }, [reactFlowInstance]);
+
+  // Auto fit view on department filter change in tree mode
+  useEffect(() => {
+    if (viewMode === 'tree') {
+      const timer = setTimeout(() => {
+        handleFitView();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [departmentFilter, viewMode, handleFitView]);
 
   if (isLoading) {
     return (
@@ -950,7 +1402,9 @@ export const OrganizationChartPageContent: React.FC = () => {
         <Alert
           type="error"
           message="Không thể tải sơ đồ nhân sự"
-          description={(error as any)?.message || 'Vui lòng kiểm tra quyền BOSS hoặc kết nối máy chủ.'}
+          description={
+            (error as any)?.message || 'Vui lòng kiểm tra quyền BOSS hoặc kết nối máy chủ.'
+          }
           showIcon
           action={
             <Button size="small" type="primary" onClick={() => refetch()}>
@@ -962,6 +1416,36 @@ export const OrganizationChartPageContent: React.FC = () => {
     );
   }
 
+  // Active departments to display in Dashboard Grid view
+  const visibleGridDepartments = groupedDepartments.filter((dept) => {
+    if (departmentFilter === 'ALL') return true;
+    return dept.key.toUpperCase() === departmentFilter.toUpperCase();
+  });
+
+  const tabItems = [
+    ...groupedDepartments.map((dept) => ({
+      key: dept.key,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          {dept.icon}
+          <span>{dept.label}</span>
+          <Badge
+            count={dept.teamCount}
+            style={{
+              backgroundColor: dept.color,
+              fontSize: 10,
+              fontWeight: 700,
+            }}
+          />
+        </span>
+      ),
+    })),
+    {
+      key: 'ALL',
+      label: `Tất Cả Phòng Ban (${chartData?.teams.length || 0} Teams)`,
+    },
+  ];
+
   return (
     <div style={{ height: 'calc(100vh - 84px)', display: 'flex', flexDirection: 'column' }}>
       {/* Top Header & Toolbar */}
@@ -969,7 +1453,7 @@ export const OrganizationChartPageContent: React.FC = () => {
         style={{
           background: '#FFFFFF',
           borderBottom: '1px solid #DDE7E1',
-          padding: '12px 24px',
+          padding: '10px 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -978,57 +1462,80 @@ export const OrganizationChartPageContent: React.FC = () => {
           zIndex: 10,
         }}
       >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                background: 'linear-gradient(135deg, #0C6B37 0%, #167A45 100%)',
-                color: '#FFF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 18,
-              }}
-            >
-              <ApartmentOutlined />
-            </div>
-            <div>
-              <Title level={4} style={{ margin: 0, color: '#18211C', lineHeight: 1.2 }}>
-                Sơ Đồ Nhân Sự (Organization Chart)
-              </Title>
-              <Text style={{ fontSize: 12, color: '#66736B' }}>
-                Cơ cấu nhân sự công ty trực quan &amp; Kéo thả điều chuyển thành viên giữa các Team
-              </Text>
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #0C6B37 0%, #167A45 100%)',
+              color: '#FFF',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 18,
+            }}
+          >
+            <ApartmentOutlined />
+          </div>
+          <div>
+            <Title level={4} style={{ margin: 0, color: '#18211C', lineHeight: 1.2 }}>
+              Sơ Đồ Nhân Sự (Organization Chart)
+            </Title>
+            <Text style={{ fontSize: 12, color: '#66736B' }}>
+              Bố cục phân cấp từ trên xuống: BOSS → Phòng Ban → Team → Trưởng Team → Thành viên
+            </Text>
           </div>
         </div>
 
         {/* Toolbar Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* View Mode Toggle */}
+          <Segmented
+            value={viewMode}
+            onChange={(val) => setViewMode(val as 'tree' | 'grid')}
+            options={[
+              {
+                value: 'tree',
+                label: 'Sơ đồ cây (Flow)',
+                icon: <BranchesOutlined />,
+              },
+              {
+                value: 'grid',
+                label: 'Bảng quản trị (Grid)',
+                icon: <AppstoreOutlined />,
+              },
+            ]}
+          />
+
+          {/* Search Input */}
           <Input
             prefix={<SearchOutlined style={{ color: '#9CA3AF' }} />}
             placeholder="Tìm theo tên, mã NV, chức vụ..."
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
             allowClear
-            style={{ width: 230 }}
+            style={{ width: 220 }}
           />
 
+          {/* Team Filter Select */}
           <Select
-            value={departmentFilter}
-            onChange={setDepartmentFilter}
+            value={teamFilterId}
+            onChange={setTeamFilterId}
             style={{ width: 170 }}
             options={[
-              { value: 'ALL', label: 'Tất cả phòng ban' },
-              { value: 'SALES', label: 'Phòng Kinh Doanh' },
-              { value: 'DEV', label: 'Phòng Lập Trình' },
-              { value: 'SEO', label: 'Phòng SEO / MKT' },
+              { value: 'ALL', label: 'Tất cả Team' },
+              ...(chartData?.teams
+                .filter((t) =>
+                  departmentFilter === 'ALL'
+                    ? true
+                    : t.department.toUpperCase() === departmentFilter.toUpperCase(),
+                )
+                .map((t) => ({ value: t.id, label: t.name })) || []),
             ]}
           />
 
+          {/* Expand / Collapse All */}
           <Space>
             <Tooltip title="Thu gọn tất cả">
               <Button icon={<UpOutlined />} onClick={handleCollapseAll} />
@@ -1036,14 +1543,17 @@ export const OrganizationChartPageContent: React.FC = () => {
             <Tooltip title="Mở rộng tất cả">
               <Button icon={<DownOutlined />} onClick={handleExpandAll} />
             </Tooltip>
-            <Tooltip title="Thu phóng vừa màn hình">
-              <Button icon={<AimOutlined />} onClick={() => reactFlowInstance.fitView({ padding: 0.2 })} />
-            </Tooltip>
+            {viewMode === 'tree' && (
+              <Tooltip title="Thu phóng vừa màn hình">
+                <Button icon={<AimOutlined />} onClick={handleFitView} />
+              </Tooltip>
+            )}
             <Tooltip title="Tải lại sơ đồ">
               <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
             </Tooltip>
           </Space>
 
+          {/* External Staff */}
           <Button
             icon={<SafetyCertificateOutlined />}
             onClick={() => setExternalStaffDrawerOpen(true)}
@@ -1054,33 +1564,203 @@ export const OrganizationChartPageContent: React.FC = () => {
         </div>
       </div>
 
-      {/* React Flow Canvas */}
-      <div style={{ flex: 1, position: 'relative', background: '#F8FAF9' }}>
-        <ReactFlow
-          nodes={rfNodes}
-          edges={rfEdges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.15 }}
-          minZoom={0.25}
-          maxZoom={1.8}
-        >
-          <Background color="#DDE7E1" gap={20} size={1.2} />
-          <Controls position="bottom-right" />
-          <MiniMap
-            nodeColor={(n) => {
-              if (n.type === 'bossNode') return '#F59E0B';
-              return '#0C6B37';
-            }}
-            maskColor="rgba(240, 245, 242, 0.7)"
-            style={{ border: '1px solid #DDE7E1', borderRadius: 10 }}
-          />
-        </ReactFlow>
+      {/* Dedicated Department Tabs Bar (Always visible for fast switching without sprawl) */}
+      <div
+        style={{
+          background: '#FFFFFF',
+          borderBottom: '1px solid #E5E7EB',
+          padding: '4px 24px 0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+        }}
+      >
+        <Tabs
+          activeKey={departmentFilter}
+          onChange={(key) => {
+            setDepartmentFilter(key);
+            setTeamFilterId('ALL');
+          }}
+          items={tabItems}
+          style={{ marginBottom: -1 }}
+        />
       </div>
 
-      {/* Confirm Move Member Modal */}
+      {/* Main Content Area */}
+      {viewMode === 'tree' ? (
+        /* React Flow Canvas (Tree Direction: Top to Bottom) */
+        <div style={{ flex: 1, position: 'relative', background: '#F8FAF9' }}>
+          <ReactFlow
+            nodes={rfNodes}
+            edges={rfEdges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.15 }}
+            minZoom={0.2}
+            maxZoom={1.8}
+          >
+            <Background color="#DDE7E1" gap={20} size={1.2} />
+            <Controls position="bottom-right" />
+            <MiniMap
+              nodeColor={(n) => {
+                if (n.type === 'bossNode') return '#F59E0B';
+                if (n.type === 'deptNode') return '#1D4ED8';
+                return '#0C6B37';
+              }}
+              maskColor="rgba(240, 245, 242, 0.7)"
+              style={{ border: '1px solid #DDE7E1', borderRadius: 10 }}
+            />
+          </ReactFlow>
+        </div>
+      ) : (
+        /* Dashboard Grid View (Responsive CSS Grid) */
+        <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAF9', padding: '24px 32px' }}>
+          {/* BOSS Section */}
+          {chartData?.boss && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                marginBottom: 32,
+              }}
+            >
+              <BossNode data={{ boss: chartData.boss }} />
+              <div
+                style={{
+                  width: 2,
+                  height: 28,
+                  background: '#D97706',
+                  marginTop: 6,
+                }}
+              />
+            </div>
+          )}
+
+          {/* Department Sections & Grid */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+            {visibleGridDepartments.map((dept) => {
+              const deptTeams = dept.teams.filter((t) => {
+                if (teamFilterId !== 'ALL' && String(t.id) !== String(teamFilterId)) return false;
+                if (!searchKeyword) return true;
+                const kw = searchKeyword.toLowerCase();
+                const teamMatch =
+                  t.name.toLowerCase().includes(kw) ||
+                  t.code.toLowerCase().includes(kw) ||
+                  (t.leader && t.leader.fullName.toLowerCase().includes(kw));
+                const memberMatch = t.members.some(
+                  (m) =>
+                    m.fullName.toLowerCase().includes(kw) ||
+                    m.employeeCode.toLowerCase().includes(kw) ||
+                    (m.positionName && m.positionName.toLowerCase().includes(kw)),
+                );
+                return teamMatch || memberMatch;
+              });
+
+              return (
+                <div key={dept.key}>
+                  {/* Department Banner */}
+                  <div
+                    style={{
+                      background: dept.bg,
+                      border: `1.5px solid ${dept.border}`,
+                      borderRadius: 14,
+                      padding: '14px 20px',
+                      marginBottom: 16,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 10,
+                          background: dept.color,
+                          color: '#FFF',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 18,
+                        }}
+                      >
+                        {dept.icon}
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 15,
+                            fontWeight: 800,
+                            color: dept.color,
+                            letterSpacing: '0.5px',
+                          }}
+                        >
+                          {dept.label}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6B7280' }}>{dept.subLabel}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      <Tag color="default" style={{ padding: '4px 10px', fontSize: 12 }}>
+                        Số Teams: <b>{deptTeams.length}</b>
+                      </Tag>
+                      <Tag color="success" style={{ padding: '4px 10px', fontSize: 12 }}>
+                        Tổng nhân sự: <b>{dept.memberCount}</b>
+                      </Tag>
+                    </div>
+                  </div>
+
+                  {/* Responsive Grid: 3-4 teams/row desktop, 2 tablet, 1 mobile */}
+                  {deptTeams.length === 0 ? (
+                    <Empty
+                      description="Không tìm thấy Team nào phù hợp bộ lọc"
+                      style={{ padding: 24 }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                        gap: 24,
+                        alignItems: 'start',
+                      }}
+                    >
+                      {deptTeams.map((team) => (
+                        <div key={team.id} style={{ display: 'flex', justifyContent: 'center' }}>
+                          <TeamCardView
+                            team={team}
+                            isCollapsed={collapsedTeamIds.has(team.id)}
+                            onToggleCollapse={handleToggleCollapse}
+                            onDragStartMember={handleDragStartMember}
+                            onDropMemberOnTeam={handleDropMemberOnTeam}
+                            draggedMember={draggedMember}
+                            isDragOver={dragOverTeamId === team.id}
+                            onDragEnterTeam={handleDragEnterTeam}
+                            onDragLeaveTeam={handleDragLeaveTeam}
+                            onOpenMemberDetail={handleOpenMemberDetail}
+                            onOpenMoveModal={handleOpenMoveModal}
+                            searchKeyword={searchKeyword}
+                            hasHandle={false}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Modal 1: Confirm Move Member (via Drag & Drop) */}
       <Modal
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1110,7 +1790,7 @@ export const OrganizationChartPageContent: React.FC = () => {
                 showIcon
                 icon={<WarningOutlined />}
                 message="Lưu ý: Chuyển nhân sự liên phòng ban"
-                description={`Bạn đang chuyển nhân viên từ phòng ban [${pendingMoveData.sourceTeam.department}] sang [${pendingMoveData.targetTeam.department}]. Hệ thống sẽ ghi nhận cờ kiểm toán liên phòng ban (is_cross_department).`}
+                description={`Bạn đang chuyển nhân viên từ phòng ban [${pendingMoveData.sourceTeam.department}] sang [${pendingMoveData.targetTeam.department}]. Hệ thống sẽ áp dụng quy tắc kiểm toán liên phòng ban.`}
               />
             )}
 
@@ -1126,7 +1806,10 @@ export const OrganizationChartPageContent: React.FC = () => {
                 gap: 12,
               }}
             >
-              <Avatar size={46} style={{ backgroundColor: '#0C6B37', fontWeight: 700, fontSize: 18 }}>
+              <Avatar
+                size={46}
+                style={{ backgroundColor: '#0C6B37', fontWeight: 700, fontSize: 18 }}
+              >
                 {pendingMoveData.employee.fullName.charAt(0).toUpperCase()}
               </Avatar>
               <div>
@@ -1185,8 +1868,8 @@ export const OrganizationChartPageContent: React.FC = () => {
               }}
             >
               <InfoCircleOutlined style={{ marginRight: 6, color: '#10B981' }} />
-              Thao tác này sẽ thực hiện <b>Database Transaction</b>: đóng hiệu lực phân công nhóm cũ (tại thời điểm hiện
-              tại) và mở phân công nhóm mới, đồng thời lưu vết lịch sử kiểm toán (Audit Log).
+              Thao tác này sẽ thực hiện <b>Database Transaction</b>: đóng phân công nhóm cũ và mở
+              phân công nhóm mới trong cùng phòng ban, lưu vết Audit Log.
             </div>
 
             {/* Reason Input */}
@@ -1196,7 +1879,7 @@ export const OrganizationChartPageContent: React.FC = () => {
               </Text>
               <Input.TextArea
                 rows={2}
-                placeholder="Nhập ghi chú hoặc căn cứ điều chuyển..."
+                placeholder="Nhập ghi chú hoặc lý do chuyển nhóm..."
                 value={moveReason}
                 onChange={(e) => setMoveReason(e.target.value)}
               />
@@ -1205,69 +1888,194 @@ export const OrganizationChartPageContent: React.FC = () => {
         )}
       </Modal>
 
-      {/* Change Team Leader Modal */}
+      {/* Modal 2: Direct Move Member without drag (via Action Menu "...") */}
       <Modal
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CrownOutlined style={{ color: '#F59E0B' }} />
-            <span>Đổi Trưởng Nhóm: {selectedTeamForLeader?.name}</span>
+            <SwapOutlined style={{ color: '#0C6B37' }} />
+            <span>Chuyển Team: {selectedMemberToMove?.employee.fullName}</span>
           </div>
         }
-        open={changeLeaderModalOpen}
+        open={manualMoveModalOpen}
         onCancel={() => {
-          setChangeLeaderModalOpen(false);
-          setSelectedTeamForLeader(null);
-          setSelectedNewLeaderId(null);
+          setManualMoveModalOpen(false);
+          setSelectedMemberToMove(null);
+          setManualTargetTeamId(null);
+          setManualMoveReason('');
         }}
-        onOk={handleConfirmChangeLeader}
-        confirmLoading={changeLeaderMutation.isPending}
-        okText="Bổ nhiệm Trưởng nhóm"
+        onOk={handleConfirmManualMove}
+        confirmLoading={moveMutation.isPending}
+        okText="Xác nhận chuyển"
         cancelText="Hủy"
-        okButtonProps={{ style: { backgroundColor: '#F59E0B', borderColor: '#F59E0B', fontWeight: 600 } }}
+        okButtonProps={{ style: { backgroundColor: '#0C6B37', fontWeight: 600 } }}
       >
-        {selectedTeamForLeader && (
+        {selectedMemberToMove && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 12 }}>
-            <Alert
-              type="info"
-              showIcon
-              message="Chính sách bổ nhiệm Trưởng nhóm"
-              description="Theo quy chuẩn Canonical: Việc thay đổi Trưởng nhóm được thực hiện qua hành động riêng biệt, giữ nguyên role/position tài khoản và lưu vết temporal history."
-            />
-
-            <div>
-              <Text style={{ fontSize: 12, color: '#66736B' }}>Trưởng nhóm hiện tại:</Text>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#18211C', marginTop: 2 }}>
-                {selectedTeamForLeader.leader
-                  ? `${selectedTeamForLeader.leader.fullName} (${selectedTeamForLeader.leader.employeeCode})`
-                  : 'Chưa có Trưởng nhóm'}
+            <div
+              style={{
+                background: '#F7FAF8',
+                borderRadius: 10,
+                padding: 12,
+                border: '1px solid #DDE7E1',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <Avatar size={42} style={{ backgroundColor: '#0C6B37', fontWeight: 700 }}>
+                {selectedMemberToMove.employee.fullName.charAt(0).toUpperCase()}
+              </Avatar>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#18211C' }}>
+                  {selectedMemberToMove.employee.fullName}
+                </div>
+                <div style={{ fontSize: 12, color: '#66736B' }}>
+                  Mã: <Tag color="blue">{selectedMemberToMove.employee.employeeCode}</Tag> | Nhóm
+                  hiện tại: <b>{selectedMemberToMove.sourceTeam.name}</b> (
+                  {selectedMemberToMove.sourceTeam.department})
+                </div>
               </div>
             </div>
 
             <div>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                Chọn nhân sự làm Trưởng nhóm mới:
+                Chọn Team tiếp nhận (Cùng phòng ban {selectedMemberToMove.sourceTeam.department}):
               </Text>
               <Select
-                placeholder="Chọn nhân viên từ nhóm..."
+                placeholder="Chọn Team đích tiếp nhận..."
                 style={{ width: '100%' }}
-                value={selectedNewLeaderId}
-                onChange={setSelectedNewLeaderId}
-                options={eligibleLeaderCandidates.map((m) => ({
-                  value: m.employeeId,
-                  label: `${m.fullName} - ${m.employeeCode} (${m.positionName || 'Nhân viên'})`,
+                value={manualTargetTeamId}
+                onChange={setManualTargetTeamId}
+                options={eligibleManualTargetTeams.map((t) => ({
+                  value: t.id,
+                  label: `${t.name} (Trưởng nhóm: ${t.leader ? t.leader.fullName : 'Chưa có'} | ${t.members.length} thành viên)`,
                 }))}
               />
-              {eligibleLeaderCandidates.length === 0 && (
+              {eligibleManualTargetTeams.length === 0 && (
                 <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                  Nhóm này hiện chưa có thành viên nào để bổ nhiệm làm Trưởng nhóm.
+                  Hiện không có Team khác trong cùng phòng ban để chuyển.
                 </Text>
               )}
+            </div>
+
+            <div>
+              <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                Lý do điều chuyển (tùy chọn):
+              </Text>
+              <Input.TextArea
+                rows={2}
+                placeholder="Nhập lý do điều chuyển nhân sự..."
+                value={manualMoveReason}
+                onChange={(e) => setManualMoveReason(e.target.value)}
+              />
             </div>
           </div>
         )}
       </Modal>
 
-      {/* External Staff Drawer (ADMIN, ACCOUNTANT, Corporate support) */}
+      {/* Drawer: Member Detail Profile */}
+      <Drawer
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <UserOutlined style={{ color: '#0C6B37' }} />
+            <span>Hồ Sơ Nhân Sự</span>
+          </div>
+        }
+        placement="right"
+        width={400}
+        open={Boolean(selectedMemberForDetail)}
+        onClose={() => setSelectedMemberForDetail(null)}
+      >
+        {selectedMemberForDetail && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Header Profile Card */}
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '20px 16px',
+                background: '#F8FAF9',
+                borderRadius: 12,
+                border: '1px solid #DDE7E1',
+              }}
+            >
+              <Avatar
+                size={64}
+                style={{
+                  backgroundColor: '#0C6B37',
+                  fontSize: 24,
+                  fontWeight: 800,
+                  marginBottom: 12,
+                }}
+              >
+                {selectedMemberForDetail.employee.fullName.charAt(0).toUpperCase()}
+              </Avatar>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#18211C' }}>
+                {selectedMemberForDetail.employee.fullName}
+              </div>
+              <div style={{ fontSize: 13, color: '#66736B', marginTop: 2 }}>
+                {selectedMemberForDetail.employee.positionName || 'Nhân viên'}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  gap: 6,
+                  marginTop: 8,
+                }}
+              >
+                <Tag color="blue">{selectedMemberForDetail.employee.employeeCode}</Tag>
+                <Tag color="success">
+                  {selectedMemberForDetail.employee.status === 'ACTIVE'
+                    ? 'Hoạt động'
+                    : selectedMemberForDetail.employee.status}
+                </Tag>
+              </div>
+            </div>
+
+            {/* Profile Info Table */}
+            <Descriptions title="Thông tin cơ cấu" column={1} size="small" bordered>
+              <Descriptions.Item label="Phòng Ban">
+                <Tag color="green">{selectedMemberForDetail.team.department}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Nhóm công tác">
+                <b>{selectedMemberForDetail.team.name}</b>
+              </Descriptions.Item>
+              <Descriptions.Item label="Trưởng Team">
+                {selectedMemberForDetail.team.leader?.fullName || 'Chưa có'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Vai trò hệ thống">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {selectedMemberForDetail.employee.roles.map((r) => (
+                    <Tag key={r} color="purple">
+                      {r}
+                    </Tag>
+                  ))}
+                </div>
+              </Descriptions.Item>
+              <Descriptions.Item label="Số điện thoại">
+                {selectedMemberForDetail.employee.phone || 'Chưa cập nhật'}
+              </Descriptions.Item>
+            </Descriptions>
+
+            {/* Quick Action Button */}
+            <Button
+              type="primary"
+              icon={<SwapOutlined />}
+              onClick={() => {
+                const item = selectedMemberForDetail;
+                setSelectedMemberForDetail(null);
+                handleOpenMoveModal(item.employee, item.team);
+              }}
+              style={{ backgroundColor: '#0C6B37', fontWeight: 600 }}
+              block
+            >
+              Chuyển Sang Team Khác
+            </Button>
+          </div>
+        )}
+      </Drawer>
+
+      {/* Drawer: External Staff (ADMIN, ACCOUNTANT, Corporate support) */}
       <Drawer
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1299,7 +2107,9 @@ export const OrganizationChartPageContent: React.FC = () => {
                     {staff.fullName.charAt(0).toUpperCase()}
                   </Avatar>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#18211C' }}>{staff.fullName}</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#18211C' }}>
+                      {staff.fullName}
+                    </div>
                     <div style={{ fontSize: 11, color: '#66736B' }}>
                       <Tag color="default">{staff.employeeCode}</Tag>
                       <span>{staff.positionName || 'Chuyên viên'}</span>

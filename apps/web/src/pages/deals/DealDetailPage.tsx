@@ -409,6 +409,7 @@ export const DealDetailPage: React.FC = () => {
       <DealAssignModal
         isOpen={isAssignOpen}
         dealId={deal.id}
+        currentSaleId={deal.assigned_sale_id}
         onClose={() => setIsAssignOpen(false)}
         onSuccess={() => fetchDetail(false)}
       />
@@ -416,6 +417,8 @@ export const DealDetailPage: React.FC = () => {
       <DealClosingSaleModal
         isOpen={isClosingSaleOpen}
         dealId={deal.id}
+        currentClosingSaleId={deal.closing_sale_id}
+        currentClosingSaleName={deal.closing_sale_name}
         onClose={() => setIsClosingSaleOpen(false)}
         onSuccess={() => fetchDetail(false)}
       />

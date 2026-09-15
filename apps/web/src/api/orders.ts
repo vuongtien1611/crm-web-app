@@ -72,6 +72,7 @@ export interface OrderDetail {
   primary_contact_phone?: string;
   primary_contact_email?: string;
   order_code: string;
+  order_name?: string;
   workflow_status: 'DRAFT' | 'PENDING_APPROVAL' | 'NEED_MORE_INFO' | 'APPROVED' | 'IN_PROGRESS' | 'COMPLETED' | 'REJECTED' | 'CANCELLED';
   created_at: string;
   updated_at: string;
@@ -85,6 +86,7 @@ export interface OrderListItem {
   company_name: string;
   primary_contact_name?: string;
   order_code: string;
+  order_name?: string;
   workflow_status: string;
   itemCount: number;
   totalNetValue: number;
@@ -184,12 +186,24 @@ export async function cancelOrderApi(id: string, reason?: string) {
 
 export async function addOrderItemApi(
   orderId: string,
-  data: { serviceId: string; closingSaleId: string; originalPrice: number; discountAmount?: number },
+  data: {
+    serviceId: number | string;
+    closingSaleId: number | string;
+    originalPrice: number;
+    discountAmount?: number;
+    dealId?: string | number;
+  },
 ) {
   const res = await fetchWithAuth(`/api/orders/${orderId}/items`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      serviceId: Number(data.serviceId),
+      closingSaleId: Number(data.closingSaleId),
+      originalPrice: Number(data.originalPrice),
+      discountAmount: Number(data.discountAmount || 0),
+      ...(data.dealId ? { dealId: String(data.dealId) } : {}),
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

@@ -36,3 +36,6 @@ storage/uploads/
 # Temporary Scripts
 organize.py
 
+# Database Backups
+database/backups/*.dump
+!database/backups/.gitkeep

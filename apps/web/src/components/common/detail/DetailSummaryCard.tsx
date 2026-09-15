@@ -67,9 +67,40 @@ export const DetailSummaryGrid: React.FC<DetailSummaryGridProps> = ({
   className = '',
   gutter = [16, 16],
 }) => {
+  const validChildren = React.Children.toArray(children).filter(Boolean);
+  const count = validChildren.length;
+
+  const getColSpan = () => {
+    if (count <= 1) return { xs: 24, sm: 24, md: 24, lg: 24 };
+    if (count === 2) return { xs: 24, sm: 12, md: 12, lg: 12 };
+    if (count === 3) return { xs: 24, sm: 12, md: 8, lg: 8 };
+    if (count === 4) return { xs: 24, sm: 12, md: 12, lg: 6, xl: 6 };
+    return { xs: 24, sm: 12, md: 8, lg: 6, xl: 6 };
+  };
+
+  const defaultSpan = getColSpan();
+
   return (
     <div className={`vmax-summary-grid ${className}`}>
-      <Row gutter={gutter}>{children}</Row>
+      <Row gutter={gutter} align="stretch" style={{ width: '100%' }}>
+        {validChildren.map((child, idx) => {
+          if (
+            React.isValidElement(child) &&
+            (child.type === DetailSummaryItem ||
+              (child.type as any)?.displayName === 'Col' ||
+              (child.props as any)?.xs !== undefined)
+          ) {
+            return child;
+          }
+          return (
+            <Col key={idx} {...defaultSpan} style={{ display: 'flex' }}>
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
+                {child}
+              </div>
+            </Col>
+          );
+        })}
+      </Row>
     </div>
   );
 };

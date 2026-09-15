@@ -32,43 +32,53 @@ export class NotificationsService {
   async createNotification(data: CreateNotificationDto, trx?: any): Promise<any> {
     const db = trx || this.kysely.db;
 
-    if (data.idempotent) {
-      let check = db
+    const idempotencyKey = data.idempotent
+      ? `${data.employeeId}:${data.eventType}:${data.entityType || ''}:${data.entityId || ''}`
+      : null;
+
+    if (idempotencyKey) {
+      const existing = await db
         .selectFrom('notifications')
-        .select(['id', 'employee_id', 'event_type', 'is_read', 'created_at'])
-        .where('employee_id', '=', data.employeeId as any)
-        .where('event_type', '=', data.eventType);
-
-      if (data.entityType) {
-        check = check.where('entity_type', '=', data.entityType);
-      }
-      if (data.entityId) {
-        check = check.where('entity_id', '=', data.entityId as any);
-      }
-
-      const existing = await check.executeTakeFirst();
+        .selectAll()
+        .where('idempotency_key', '=', idempotencyKey)
+        .executeTakeFirst();
       if (existing) {
         return existing;
       }
     }
 
-    const [notification] = await db
-      .insertInto('notifications')
-      .values({
-        employee_id: data.employeeId as any,
-        event_type: data.eventType,
-        title: data.title,
-        content: data.content,
-        deep_link_url: data.deepLinkUrl || null,
-        entity_type: data.entityType || null,
-        entity_id: data.entityId ? (data.entityId as any) : null,
-        is_read: false,
-        created_at: new Date(),
-      })
-      .returningAll()
-      .execute();
+    try {
+      const [notification] = await db
+        .insertInto('notifications')
+        .values({
+          employee_id: data.employeeId as any,
+          event_type: data.eventType,
+          title: data.title,
+          content: data.content,
+          deep_link_url: data.deepLinkUrl || null,
+          entity_type: data.entityType || null,
+          entity_id: data.entityId ? (data.entityId as any) : null,
+          is_read: false,
+          created_at: new Date(),
+          idempotency_key: idempotencyKey,
+        })
+        .returningAll()
+        .execute();
 
-    return notification;
+      return notification;
+    } catch (err: any) {
+      if (idempotencyKey && (err.code === '23505' || err.message?.includes('uq_notifications_idempotency_key') || err.message?.includes('unique constraint'))) {
+        const existing = await db
+          .selectFrom('notifications')
+          .selectAll()
+          .where('idempotency_key', '=', idempotencyKey)
+          .executeTakeFirst();
+        if (existing) {
+          return existing;
+        }
+      }
+      throw err;
+    }
   }
 
   /**

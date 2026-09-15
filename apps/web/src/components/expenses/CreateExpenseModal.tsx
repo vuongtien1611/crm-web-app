@@ -125,8 +125,8 @@ export const CreateExpenseModal: React.FC<CreateExpenseModalProps> = ({
           <InputNumber
             style={{ width: '100%' }}
             placeholder="Ví dụ: 5.000.000"
-            formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-            parser={(value) => Number(value?.replace(/\$\s?|(,*)/g, '') || 0)}
+            formatter={(value) => (value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '')}
+            parser={(value) => (value ? Number(value.replace(/\$\s?|(\.*)|(,*)/g, '')) : (0 as any))}
           />
         </Form.Item>
 

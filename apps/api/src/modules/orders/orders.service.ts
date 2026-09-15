@@ -298,14 +298,62 @@ export class OrdersService {
       }
 
       // Find active service
+      const serviceIdStr = String(dto.serviceId);
       const service = await trx
         .selectFrom('services')
         .selectAll()
-        .where('id', '=', dto.serviceId as any)
+        .where('id', '=', serviceIdStr as any)
         .executeTakeFirst();
 
       if (!service) {
-        throw new NotFoundException(`Service [${dto.serviceId}] not found`);
+        throw new NotFoundException(`Dịch vụ [${dto.serviceId}] không tồn tại`);
+      }
+
+      if (service.is_active === false) {
+        throw new BadRequestException(`Dịch vụ [${service.name}] đang tạm ngưng hoạt động`);
+      }
+
+      // Verify closing sale employee exists and has sales-eligible role/position
+      const closingSaleIdStr = String(dto.closingSaleId);
+      const employee = await trx
+        .selectFrom('employees as e')
+        .leftJoin('positions as p', 'p.id', 'e.position_id')
+        .select([
+          'e.id',
+          'e.employee_code',
+          'e.full_name',
+          'e.status',
+          'p.code as position_code',
+          'p.name as position_name',
+        ])
+        .where('e.id', '=', closingSaleIdStr as any)
+        .executeTakeFirst();
+
+      if (!employee) {
+        throw new NotFoundException(`Nhân viên chốt sale [${dto.closingSaleId}] không tồn tại`);
+      }
+
+      if (employee.status !== 'ACTIVE' && employee.status !== 'PROBATION') {
+        throw new BadRequestException(`Nhân viên [${employee.full_name}] không ở trạng thái hoạt động`);
+      }
+
+      const allowedPositionCodes = ['SALE', 'SALES_TEAM_LEADER', 'BOSS', 'ADMIN'];
+      if (employee.position_code && !allowedPositionCodes.includes(employee.position_code)) {
+        throw new BadRequestException(`Nhân viên [${employee.full_name}] không thuộc bộ phận kinh doanh`);
+      }
+
+      const originalPrice = Number(dto.originalPrice);
+      if (isNaN(originalPrice) || originalPrice <= 0) {
+        throw new BadRequestException('Đơn giá gốc phải lớn hơn 0');
+      }
+
+      const discountAmount = Number(dto.discountAmount || 0);
+      if (isNaN(discountAmount) || discountAmount < 0) {
+        throw new BadRequestException('Số tiền giảm giá không được nhỏ hơn 0');
+      }
+
+      if (discountAmount > originalPrice) {
+        throw new BadRequestException('Số tiền giảm giá không được vượt quá đơn giá gốc');
       }
 
       // Find active requirement template
@@ -331,10 +379,8 @@ export class OrdersService {
         template = newTemplate;
       }
 
-      const originalPrice = dto.originalPrice;
-      const discountAmount = dto.discountAmount || 0;
       const netServiceValue = originalPrice - discountAmount;
-      const vatAmount = dto.vatAmount || 0;
+      const vatAmount = Number(dto.vatAmount || 0);
 
       // Insert OrderItem
       const [orderItem] = await trx
@@ -731,6 +777,7 @@ export class OrdersService {
       query = query.where((eb) =>
         eb.or([
           eb('o.order_code', 'ilike', searchTerm),
+          eb('o.order_name', 'ilike', searchTerm),
           eb('a.company_name', 'ilike', searchTerm),
         ]),
       );
@@ -777,6 +824,7 @@ export class OrdersService {
         'o.primary_contact_id',
         'c.full_name as primary_contact_name',
         'o.order_code',
+        'o.order_name',
         'o.workflow_status',
         'o.created_at',
         'o.updated_at',
@@ -790,16 +838,24 @@ export class OrdersService {
     const enrichedData = await Promise.all(
       data.map(async (order) => {
         const itemsSummary = await this.kysely.db
-          .selectFrom('order_items')
+          .selectFrom('order_items as oi')
+          .leftJoin('services as s', 's.id', 'oi.service_id')
           .select([
-            sql<number>`count(id)`.as('item_count'),
-            sql<number>`coalesce(sum(net_service_value), 0)`.as('total_net_value'),
+            sql<number>`count(oi.id)`.as('item_count'),
+            sql<number>`coalesce(sum(oi.net_service_value), 0)`.as('total_net_value'),
+            sql<string>`string_agg(distinct s.name, ', ')`.as('service_names'),
           ])
-          .where('order_id', '=', order.id)
+          .where('oi.order_id', '=', order.id)
           .executeTakeFirst();
+
+        const orderName =
+          order.order_name ||
+          itemsSummary?.service_names ||
+          `Đơn hàng ${order.order_code}`;
 
         return {
           ...order,
+          order_name: orderName,
           itemCount: Number(itemsSummary?.item_count || 0),
           totalNetValue: Number(itemsSummary?.total_net_value || 0),
         };
@@ -832,6 +888,7 @@ export class OrdersService {
         'c.phone as primary_contact_phone',
         'c.email as primary_contact_email',
         'o.order_code',
+        'o.order_name',
         'o.workflow_status',
         'o.created_at',
         'o.updated_at',
@@ -938,5 +995,40 @@ export class OrdersService {
       items: enrichedItems,
       auditLogs,
     };
+  }
+
+  async getActiveServices() {
+    const services = await this.kysely.db
+      .selectFrom('services')
+      .selectAll()
+      .where('is_active', '=', true)
+      .orderBy('name', 'asc')
+      .execute();
+
+    const priceRows = await this.kysely.db
+      .selectFrom('order_items')
+      .select([
+        'service_id',
+        (eb) => eb.fn.max('original_price').as('max_price'),
+      ])
+      .groupBy('service_id')
+      .execute();
+
+    const priceMap = new Map<string, number>();
+    for (const r of priceRows) {
+      if (r.service_id && r.max_price) {
+        priceMap.set(String(r.service_id), Number(r.max_price));
+      }
+    }
+
+    return services.map((s) => ({
+      id: Number(s.id),
+      code: s.code,
+      name: s.name,
+      service_type: s.service_type,
+      description: s.description,
+      is_active: s.is_active,
+      defaultPrice: priceMap.get(String(s.id)) || (s.service_type === 'PROJECT' ? 10000000 : 5000000),
+    }));
   }
 }

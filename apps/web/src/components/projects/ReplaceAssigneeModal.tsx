@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Form, Select, Input, message } from 'antd';
+import { Modal, Form, Select, Input, App } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { replaceAssigneeApi, ProjectAssignment } from '../../api/projects';
 import { getEmployees } from '../../api/employees';
@@ -19,6 +19,7 @@ export const ReplaceAssigneeModal: React.FC<ReplaceAssigneeModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -58,6 +59,7 @@ export const ReplaceAssigneeModal: React.FC<ReplaceAssigneeModalProps> = ({
       confirmLoading={loading}
       onCancel={onClose}
       destroyOnHidden
+      afterClose={() => form.resetFields()}
     >
       <Form className="vmax-form" form={form} layout="vertical">
         <Form.Item

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Form, Input, Select, InputNumber, message } from 'antd';
+import { Modal, Form, Input, Select, InputNumber, App } from 'antd';
 import { createChangeRequestApi } from '../../api/orders';
 
 interface CreateChangeRequestModalProps {
@@ -15,6 +15,7 @@ export const CreateChangeRequestModal: React.FC<CreateChangeRequestModalProps> =
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +45,8 @@ export const CreateChangeRequestModal: React.FC<CreateChangeRequestModalProps> =
       onCancel={onClose}
       onOk={() => form.submit()}
       confirmLoading={loading}
+      destroyOnHidden
+      afterClose={() => form.resetFields()}
     >
       <Form
         className="vmax-form"

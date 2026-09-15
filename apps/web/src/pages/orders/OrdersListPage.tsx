@@ -78,15 +78,24 @@ export const OrdersListPage: React.FC = () => {
 
   const columns = [
     {
-      title: 'Mã đơn hàng',
-      dataIndex: 'order_code',
-      key: 'order_code',
-      render: (text: string, record: OrderListItem) => (
-        <Space>
-          <FileTextOutlined style={{ color: '#3b82f6' }} />
-          <Button type="link" onClick={() => navigate(`/orders/${record.id}`)} style={{ padding: 0 }}>
-            {text}
+      title: 'Tên đơn hàng',
+      dataIndex: 'order_name',
+      key: 'order_name',
+      render: (_: string, record: OrderListItem) => (
+        <Space direction="vertical" size={2} style={{ display: 'flex', alignItems: 'flex-start' }}>
+          <Button
+            type="link"
+            onClick={() => navigate(`/orders/${record.id}`)}
+            style={{ padding: 0, height: 'auto', fontWeight: 600, textAlign: 'left', fontSize: 14 }}
+          >
+            <Space size={6} align="start">
+              <FileTextOutlined style={{ color: '#3b82f6', marginTop: 4 }} />
+              <span>{record.order_name || record.order_code}</span>
+            </Space>
           </Button>
+          <span style={{ fontSize: 12, color: 'var(--vmax-text-muted, #8c8c8c)', paddingLeft: 22 }}>
+            Mã: {record.order_code}
+          </span>
         </Space>
       ),
     },
@@ -153,11 +162,11 @@ export const OrdersListPage: React.FC = () => {
         <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <Space wrap>
             <Input
-              placeholder="Tìm kiếm theo mã đơn hoặc khách hàng..."
+              placeholder="Tìm kiếm theo tên đơn, mã đơn hoặc khách hàng..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onPressEnter={handleSearch}
-              style={{ width: 280 }}
+              style={{ width: 300 }}
               prefix={<SearchOutlined />}
             />
             <Select

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
+  App,
   Card,
   Form,
   Input,
@@ -12,8 +13,8 @@ import {
   Typography,
   Space,
   Alert,
-  message,
   Divider,
+  Tooltip,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -24,6 +25,7 @@ import {
   BankOutlined,
   LockOutlined,
   ReloadOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -44,21 +46,73 @@ const DEPARTMENT_LABELS: Record<string, string> = {
   OPERATION: 'Vận hành',
 };
 
+function generateSecurePassword(length = 14): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$%^&*()_+-=';
+  const allChars = upper + lower + digits + symbols;
+
+  const getRandomByte = (): number => {
+    const arr = new Uint8Array(1);
+    window.crypto.getRandomValues(arr);
+    return arr[0];
+  };
+
+  const getRandomChar = (charset: string): string => {
+    const byte = getRandomByte();
+    return charset[byte % charset.length];
+  };
+
+  // Guarantee at least one character from each required category
+  const passwordChars = [
+    getRandomChar(upper),
+    getRandomChar(lower),
+    getRandomChar(digits),
+    getRandomChar(symbols),
+  ];
+
+  for (let i = passwordChars.length; i < length; i++) {
+    passwordChars.push(getRandomChar(allChars));
+  }
+
+  // Fisher-Yates shuffle using crypto randomness
+  for (let i = passwordChars.length - 1; i > 0; i--) {
+    const j = getRandomByte() % (i + 1);
+    const temp = passwordChars[i];
+    passwordChars[i] = passwordChars[j];
+    passwordChars[j] = temp;
+  }
+
+  return passwordChars.join('');
+}
+
 export const CreateEmployeePage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
 
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [options, setOptions] = useState<FormOptionsResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [passwordValue, setPasswordValue] = useState('');
+
+  // Memoize initialValues to avoid re-triggering isEqual checks with dayjs circular prototype graph
+  const defaultInitialValues = useMemo(
+    () => ({
+      isLeader: false,
+      hireDate: dayjs(),
+    }),
+    [],
+  );
 
   // Watch fields for dynamic filtering
   const selectedPosition = Form.useWatch('positionCode', form);
   const selectedDepartment = Form.useWatch('department', form);
   const selectedTeamId = Form.useWatch('teamId', form);
-  const isLeaderValue = Form.useWatch('isLeader', form);
 
   const canCreate =
     user?.permissions?.includes('EMPLOYEE_CREATE') || user?.roles?.includes('ADMIN');
@@ -142,13 +196,52 @@ export const CreateEmployeePage: React.FC = () => {
   };
 
   const handleGeneratePassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*';
-    let pwd = '';
-    for (let i = 0; i < 12; i++) {
-      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    const pwd = generateSecurePassword(14);
     form.setFieldValue('password', pwd);
-    message.info('Đã tạo mật khẩu tạm thời ngẫu nhiên.');
+    setPasswordValue(pwd);
+    setPasswordVisible(true);
+    message.success('Đã tạo mật khẩu tạm thời ngẫu nhiên.');
+  };
+
+  const handleCopyPassword = async () => {
+    const currentPwd = form.getFieldValue('password') || passwordValue;
+    if (!currentPwd) {
+      message.warning('Chưa có mật khẩu để sao chép.');
+      return;
+    }
+
+    const fallbackCopy = (text: string) => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return success;
+    };
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(currentPwd);
+          message.success('Đã sao chép mật khẩu');
+          return;
+        } catch {
+          // fallback if document focus or permissions restrict writeText
+        }
+      }
+      const ok = fallbackCopy(currentPwd);
+      if (ok) {
+        message.success('Đã sao chép mật khẩu');
+      } else {
+        message.error('Không thể sao chép mật khẩu');
+      }
+    } catch {
+      message.error('Không thể sao chép mật khẩu');
+    }
   };
 
   const mapBackendError = (raw: string): string => {
@@ -190,10 +283,14 @@ export const CreateEmployeePage: React.FC = () => {
         throw new Error('Vui lòng chọn ngày vào làm.');
       }
 
+      const rawPassword = values.password ?? form.getFieldValue('password') ?? passwordValue;
+      const finalPassword =
+        typeof rawPassword === 'string' && rawPassword.trim() ? rawPassword.trim() : undefined;
+
       const payload: CreateEmployeeAccountPayload = {
         username: values.username.trim(),
         email: values.email.trim(),
-        password: values.password ? values.password.trim() : undefined,
+        password: finalPassword,
         fullName: values.fullName.trim(),
         phone: values.phone ? values.phone.trim() : undefined,
         hireDate: hireDateStr,
@@ -276,10 +373,7 @@ export const CreateEmployeePage: React.FC = () => {
         layout="vertical"
         className="vmax-form"
         onFinish={onFinish}
-        initialValues={{
-          isLeader: false,
-          hireDate: dayjs(),
-        }}
+        initialValues={defaultInitialValues}
       >
         {/* SECTION A: THÔNG TIN CÁ NHÂN */}
         <Card
@@ -534,14 +628,32 @@ export const CreateEmployeePage: React.FC = () => {
             <Col xs={24} md={12}>
               <Form.Item
                 label="Mật khẩu tạm thời"
-                name="password"
                 tooltip="Mật khẩu khởi tạo. Nếu để trống hệ thống sẽ sinh mật khẩu mặc định an toàn."
               >
                 <Space.Compact style={{ width: '100%' }}>
-                  <Input.Password placeholder="Nhập hoặc tạo ngẫu nhiên" id="employee_password" />
+                  <Form.Item name="password" noStyle>
+                    <Input.Password
+                      placeholder="Nhập hoặc tạo ngẫu nhiên"
+                      id="employee_password"
+                      visibilityToggle={{
+                        visible: passwordVisible,
+                        onVisibleChange: setPasswordVisible,
+                      }}
+                      onChange={(e) => setPasswordValue(e.target.value)}
+                    />
+                  </Form.Item>
+                  <Tooltip title="Sao chép mật khẩu">
+                    <Button
+                      icon={<CopyOutlined />}
+                      onClick={handleCopyPassword}
+                      id="btn_copy_password"
+                      title="Sao chép mật khẩu"
+                    />
+                  </Tooltip>
                   <Button
                     icon={<ReloadOutlined />}
                     onClick={handleGeneratePassword}
+                    id="btn_generate_password"
                     title="Tạo mật khẩu ngẫu nhiên"
                   >
                     Tạo ngẫu nhiên
@@ -585,6 +697,7 @@ export const CreateEmployeePage: React.FC = () => {
               fontWeight: 600,
               minWidth: '160px',
             }}
+            id="btn_submit_employee"
           >
             Tạo nhân viên
           </Button>

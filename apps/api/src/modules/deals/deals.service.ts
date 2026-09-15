@@ -422,6 +422,7 @@ export class DealsService {
               account_id: deal.account_id,
               primary_contact_id: deal.primary_contact_id || null,
               order_code: orderCode,
+              order_name: deal.deal_name || `Đơn hàng - ${orderCode}`,
               workflow_status: 'DRAFT',
             })
             .returningAll()

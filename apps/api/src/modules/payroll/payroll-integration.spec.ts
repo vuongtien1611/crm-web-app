@@ -142,11 +142,11 @@ async function cleanupPayrollFixtures(kysely: KyselyService) {
     await kysely.db.deleteFrom('team_memberships').where('employee_id', 'in', empIds).execute();
   }
 
-  // 3. Delete test teams
+  // 3. Delete test teams (only payroll test fixtures)
   const testTeams = await kysely.db
     .selectFrom('teams')
     .select('id')
-    .where('code', 'like', 'TEAM-%')
+    .where('code', 'like', 'PAY-TEAM-%')
     .execute();
   const teamIds = testTeams.map((t) => t.id);
   if (teamIds.length > 0) {
@@ -335,7 +335,7 @@ async function runPayrollIntegrationTests() {
       .insertInto('teams')
       .values({
         name: `Payroll Team ${runId}`,
-        code: `TEAM-${runId}`,
+        code: `PAY-TEAM-${runId}`,
       })
       .returningAll()
       .execute();

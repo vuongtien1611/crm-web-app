@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Form, Input, InputNumber, Select, message } from 'antd';
+import { Modal, Form, Input, InputNumber, Select, App } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { createTaskApi, ProjectAssignment } from '../../api/projects';
 import { getEmployees } from '../../api/employees';
@@ -20,6 +20,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -59,6 +60,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
       confirmLoading={loading}
       onCancel={onClose}
       destroyOnHidden
+      afterClose={() => form.resetFields()}
     >
       <Form className="vmax-form" form={form} layout="vertical">
         <Form.Item

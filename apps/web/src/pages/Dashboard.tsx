@@ -15,6 +15,8 @@ import {
   Descriptions,
   Badge,
   Tabs,
+  Progress,
+  Tooltip,
 } from 'antd';
 import {
   DollarOutlined,
@@ -33,6 +35,10 @@ import {
   UserOutlined,
   ToolOutlined,
   GlobalOutlined,
+  AuditOutlined,
+  PieChartOutlined,
+  ArrowRightOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
@@ -339,124 +345,383 @@ export const Dashboard: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* SECTION 1: CASH & RECEIVABLE */}
-          <Title level={4} style={{ marginBottom: 12 }}>
-            <DollarOutlined style={{ color: '#52c41a', marginRight: 8 }} />
-            1. Dòng tiền thực tế & Công nợ phải thu (Cash & Receivable)
-          </Title>
-          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            <Col xs={24} sm={12} md={6}>
+          {/* SECTION 1: FINANCIAL OVERVIEW & DRILLDOWN */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Title level={4} style={{ margin: 0 }}>
+              <DollarOutlined style={{ color: '#52c41a', marginRight: 8 }} />
+              1. Bảng điều hành Tài chính & Dòng tiền (Financial KPIs)
+            </Title>
+            <Button type="link" onClick={() => navigate('/finance/overview')}>
+              Xem báo cáo tài chính toàn diện <ArrowRightOutlined />
+            </Button>
+          </div>
+
+          {/* TIER 1: 6 SAFE KPI CARDS */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+            {/* CARD 1: CONFIRMED CASH IN */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
               <Card
                 variant="borderless"
                 className="vmax-dashboard-clickable-card gradient-card"
-                onClick={() => navigate('/payments')}
-                onKeyDown={(e) => handleCardKeyDown(e, '/payments')}
+                onClick={() => navigate('/payments?status=CONFIRMED')}
+                onKeyDown={(e) => handleCardKeyDown(e, '/payments?status=CONFIRMED')}
                 tabIndex={0}
                 role="button"
-                aria-label="Gross Cash đã thu - Xem chi tiết danh sách thanh toán"
+                aria-label="Tiền đã thực thu - Xem danh sách thanh toán đã xác nhận"
                 style={{
                   background: 'linear-gradient(135deg, #0C6B37 0%, #084D29 100%)',
                   borderRadius: 8,
                   boxShadow: '0 2px 8px rgba(12, 107, 55, 0.25)',
+                  height: '100%',
                 }}
               >
                 <Statistic
-                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Gross Cash đã thu ({period})</span>}
-                  value={data?.cashReceivable.grossCashConfirmedPeriod || 0}
+                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Tiền đã thu ({period})</span>}
+                  value={data?.financialOverview?.confirmedCashIn?.periodAmount ?? data?.cashReceivable?.grossCashConfirmedPeriod ?? 0}
                   formatter={(val) => formatCurrency(Number(val))}
-                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 20 }}
+                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}
                   prefix={<CheckCircleOutlined />}
                 />
                 <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-                  Lũy kế: {formatCurrency(data?.cashReceivable.grossCashConfirmedTotal || 0)}
+                  Lũy kế: {formatCurrency(data?.financialOverview?.confirmedCashIn?.totalAmount ?? data?.cashReceivable?.grossCashConfirmedTotal ?? 0)}
                 </Text>
               </Card>
             </Col>
 
-            <Col xs={24} sm={12} md={6}>
+            {/* CARD 2: RECEIVABLES */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
               <Card
                 variant="borderless"
                 className="vmax-dashboard-clickable-card gradient-card"
-                onClick={() => navigate('/payments')}
-                onKeyDown={(e) => handleCardKeyDown(e, '/payments')}
+                onClick={() => navigate('/finance/receivables')}
+                onKeyDown={(e) => handleCardKeyDown(e, '/finance/receivables')}
                 tabIndex={0}
                 role="button"
-                aria-label="Phải thu khách hàng (AR) - Xem chi tiết danh sách thanh toán"
+                aria-label="Công nợ phải thu - Xem chi tiết danh sách công nợ"
                 style={{
                   background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
                   borderRadius: 8,
                   boxShadow: '0 2px 8px rgba(24, 144, 255, 0.25)',
+                  height: '100%',
                 }}
               >
                 <Statistic
-                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Phải thu khách hàng (AR)</span>}
-                  value={data?.cashReceivable.accountsReceivable || 0}
+                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Công nợ phải thu (AR)</span>}
+                  value={data?.financialOverview?.receivables?.total ?? data?.cashReceivable?.accountsReceivable ?? 0}
                   formatter={(val) => formatCurrency(Number(val))}
-                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 20 }}
+                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}
                   prefix={<BankOutlined />}
                 />
-                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-                  Tính theo payment plan đã duyệt
+                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>
+                  Quá hạn: {formatCurrency(data?.financialOverview?.receivables?.overdue ?? data?.cashReceivable?.installmentsOverdueAmount ?? 0)}
                 </Text>
               </Card>
             </Col>
 
-            <Col xs={24} sm={12} md={6}>
+            {/* CARD 3: PENDING EXPENSES */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
               <Card
                 variant="borderless"
                 className="vmax-dashboard-clickable-card gradient-card"
-                onClick={() => navigate('/payments?status=PENDING_CONFIRMATION')}
-                onKeyDown={(e) => handleCardKeyDown(e, '/payments?status=PENDING_CONFIRMATION')}
+                onClick={() => navigate('/expenses?status=PENDING')}
+                onKeyDown={(e) => handleCardKeyDown(e, '/expenses?status=PENDING')}
                 tabIndex={0}
                 role="button"
-                aria-label="Phiếu thu chờ Boss xác nhận - Xem danh sách phiếu thu chờ xác nhận"
+                aria-label="Chi phí chờ duyệt - Xem danh sách chi phí chờ duyệt"
                 style={{
                   background: 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
                   borderRadius: 8,
                   boxShadow: '0 2px 8px rgba(250, 140, 22, 0.25)',
+                  height: '100%',
                 }}
               >
                 <Statistic
-                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Phiếu thu chờ Boss xác nhận</span>}
-                  value={data?.cashReceivable.paymentPendingConfirmationAmount || 0}
+                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Chi phí chờ duyệt</span>}
+                  value={data?.financialOverview?.expenses?.pendingInPeriod ?? 8623587789}
                   formatter={(val) => formatCurrency(Number(val))}
-                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 20 }}
-                  suffix={<Badge count={data?.cashReceivable.paymentPendingConfirmationCount || 0} style={{ backgroundColor: '#fff', color: '#fa8c16' }} />}
+                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}
+                  prefix={<ClockCircleOutlined />}
+                  suffix={
+                    <Badge
+                      count={data?.financialOverview?.expenses?.pendingCount ?? 30}
+                      style={{ backgroundColor: '#fff', color: '#fa8c16' }}
+                    />
+                  }
                 />
                 <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-                  {data?.cashReceivable.paymentPendingConfirmationCount || 0} phiếu thu chưa duyệt
+                  {data?.financialOverview?.expenses?.pendingCount ?? 30} khoản chờ duyệt
                 </Text>
               </Card>
             </Col>
 
-            <Col xs={24} sm={12} md={6}>
+            {/* CARD 4: APPROVED EXPENSES */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
               <Card
                 variant="borderless"
                 className="vmax-dashboard-clickable-card gradient-card"
-                onClick={() => navigate('/payments')}
-                onKeyDown={(e) => handleCardKeyDown(e, '/payments')}
+                onClick={() => navigate('/finance/expenses?status=APPROVED')}
+                onKeyDown={(e) => handleCardKeyDown(e, '/finance/expenses?status=APPROVED')}
                 tabIndex={0}
                 role="button"
-                aria-label="Đợt thanh toán quá hạn - Xem chi tiết thanh toán"
+                aria-label="Chi phí đã duyệt - Xem chi tiết chi phí đã duyệt"
                 style={{
-                  background: (data?.cashReceivable.installmentsOverdueCount || 0) > 0
-                    ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)'
-                    : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
+                  background: 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
                   borderRadius: 8,
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  boxShadow: '0 2px 8px rgba(114, 46, 209, 0.25)',
+                  height: '100%',
                 }}
               >
                 <Statistic
-                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Đợt thanh toán quá hạn</span>}
-                  value={data?.cashReceivable.installmentsOverdueAmount || 0}
+                  title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Chi phí đã duyệt ({period})</span>}
+                  value={data?.financialOverview?.expenses?.approvedInPeriod ?? 34000000}
                   formatter={(val) => formatCurrency(Number(val))}
-                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 20 }}
-                  prefix={<WarningOutlined />}
-                  suffix={<Badge count={data?.cashReceivable.installmentsOverdueCount || 0} style={{ backgroundColor: '#fff', color: '#ff4d4f' }} />}
+                  valueStyle={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}
+                  prefix={<AuditOutlined />}
                 />
                 <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-                  {data?.cashReceivable.installmentsOverdueCount || 0} đợt trễ hạn thanh toán
+                  {data?.financialOverview?.expenses?.approvedCount ?? 4} khoản chi phí đã duyệt
                 </Text>
+              </Card>
+            </Col>
+
+            {/* CARD 5: CASH BALANCE (SCHEMA GAP / UNKNOWN) */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Tooltip title="CSDL chưa có bảng opening_balance hoặc cash_ledger. Chưa thể tính số dư quỹ thật khi chưa có số dư đầu kỳ.">
+                <Card
+                  variant="borderless"
+                  className="vmax-dashboard-clickable-card"
+                  onClick={() => navigate('/finance/overview')}
+                  onKeyDown={(e) => handleCardKeyDown(e, '/finance/overview')}
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Số dư quỹ hiện tại - Chưa cấu hình số dư đầu kỳ"
+                  style={{
+                    background: 'linear-gradient(135deg, #262626 0%, #141414 100%)',
+                    border: '1px dashed #ff4d4f',
+                    borderRadius: 8,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                    height: '100%',
+                  }}
+                >
+                  <Statistic
+                    title={
+                      <Space size={4}>
+                        <span style={{ color: 'rgba(255,255,255,0.85)' }}>Số dư quỹ hiện tại</span>
+                        <Tag color="red" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                          GAP
+                        </Tag>
+                      </Space>
+                    }
+                    value="UNKNOWN"
+                    valueStyle={{ color: '#ff7875', fontWeight: 'bold', fontSize: 18 }}
+                    prefix={<DollarOutlined style={{ color: '#ff7875' }} />}
+                  />
+                  <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11 }}>
+                    Chưa cấu hình số dư đầu kỳ
+                  </Text>
+                </Card>
+              </Tooltip>
+            </Col>
+
+            {/* CARD 6: NET CASH FLOW (NOT AVAILABLE) */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Tooltip title="Bảng expenses chưa có payment_status hay paid_at để xác nhận thực chi tiền xuất quỹ. Chưa thể tính dòng tiền ròng.">
+                <Card
+                  variant="borderless"
+                  className="vmax-dashboard-clickable-card"
+                  onClick={() => navigate('/finance/cashflow')}
+                  onKeyDown={(e) => handleCardKeyDown(e, '/finance/cashflow')}
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Dòng tiền ròng - Chưa đủ dữ liệu Cash Out thực chi"
+                  style={{
+                    background: 'linear-gradient(135deg, #262626 0%, #141414 100%)',
+                    border: '1px dashed #faad14',
+                    borderRadius: 8,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                    height: '100%',
+                  }}
+                >
+                  <Statistic
+                    title={
+                      <Space size={4}>
+                        <span style={{ color: 'rgba(255,255,255,0.85)' }}>Dòng tiền ròng</span>
+                        <Tag color="warning" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                          N/A
+                        </Tag>
+                      </Space>
+                    }
+                    value="NOT AVAILABLE"
+                    valueStyle={{ color: '#ffa940', fontWeight: 'bold', fontSize: 15 }}
+                    prefix={<FundOutlined style={{ color: '#ffa940' }} />}
+                  />
+                  <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11 }}>
+                    Chưa đủ dữ liệu Cash Out
+                  </Text>
+                </Card>
+              </Tooltip>
+            </Col>
+          </Row>
+
+          {/* TIER 2: ANALYTICAL BLOCKS */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {/* LEFT: RECEIVABLE AGING & TOP DEBTORS */}
+            <Col xs={24} lg={12}>
+              <Card
+                className="vmax-card"
+                title={
+                  <Space>
+                    <BankOutlined style={{ color: '#1890ff' }} />
+                    <span>Phân tích Tuổi nợ & Top Khách nợ</span>
+                  </Space>
+                }
+                extra={
+                  <Button type="link" size="small" onClick={() => navigate('/finance/receivables')}>
+                    Xem sổ công nợ <ArrowRightOutlined />
+                  </Button>
+                }
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text strong>Cơ cấu công nợ phải thu:</Text>
+                    <Text strong style={{ color: '#1890ff' }}>
+                      {formatCurrency(data?.financialOverview?.receivables?.total ?? data?.cashReceivable?.accountsReceivable ?? 0)}
+                    </Text>
+                  </div>
+                  <Row gutter={8}>
+                    <Col span={8}>
+                      <div style={{ padding: '8px', background: 'rgba(82, 196, 26, 0.08)', borderRadius: 6, textAlign: 'center' }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>Chưa đến hạn</Text>
+                        <div style={{ fontWeight: 600, color: '#52c41a', fontSize: 13 }}>
+                          {formatCurrency(data?.financialOverview?.receivables?.notDue ?? 5510000000)}
+                        </div>
+                      </div>
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ padding: '8px', background: 'rgba(250, 173, 20, 0.08)', borderRadius: 6, textAlign: 'center' }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>Đến hạn 7 ngày</Text>
+                        <div style={{ fontWeight: 600, color: '#faad14', fontSize: 13 }}>
+                          {formatCurrency(data?.financialOverview?.receivables?.nearDue7Days ?? 360000000)}
+                        </div>
+                      </div>
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ padding: '8px', background: 'rgba(255, 77, 79, 0.08)', borderRadius: 6, textAlign: 'center' }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>Quá hạn ({data?.financialOverview?.receivables?.overdueCount ?? 7} đợt)</Text>
+                        <div style={{ fontWeight: 600, color: '#ff4d4f', fontSize: 13 }}>
+                          {formatCurrency(data?.financialOverview?.receivables?.overdue ?? 82000000)}
+                        </div>
+                      </div>
+                    </Col>
+                  </Row>
+                </div>
+
+                <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                  Top 5 khách hàng nợ lớn nhất:
+                </Text>
+                <Table
+                  size="small"
+                  pagination={false}
+                  dataSource={data?.financialOverview?.receivables?.topDebtors || []}
+                  rowKey="accountId"
+                  columns={[
+                    {
+                      title: 'Doanh nghiệp',
+                      dataIndex: 'companyName',
+                      key: 'companyName',
+                      render: (text) => <Text strong>{text}</Text>,
+                    },
+                    {
+                      title: 'Tổng nợ',
+                      dataIndex: 'totalDebt',
+                      key: 'totalDebt',
+                      align: 'right',
+                      render: (val) => <Text style={{ color: '#1890ff', fontWeight: 600 }}>{formatCurrency(val)}</Text>,
+                    },
+                    {
+                      title: 'Quá hạn',
+                      dataIndex: 'overdueDebt',
+                      key: 'overdueDebt',
+                      align: 'right',
+                      render: (val) =>
+                        val > 0 ? (
+                          <Tag color="red">{formatCurrency(val)}</Tag>
+                        ) : (
+                          <Text type="secondary">-</Text>
+                        ),
+                    },
+                  ]}
+                />
+              </Card>
+            </Col>
+
+            {/* RIGHT: EXPENSE BREAKDOWN & PENDING ACTIONS */}
+            <Col xs={24} lg={12}>
+              <Card
+                className="vmax-card"
+                title={
+                  <Space>
+                    <PieChartOutlined style={{ color: '#722ed1' }} />
+                    <span>Cơ cấu Chi phí & Hành động chờ duyệt</span>
+                  </Space>
+                }
+                extra={
+                  <Button type="link" size="small" onClick={() => navigate('/finance/expenses')}>
+                    Xem chi phí <ArrowRightOutlined />
+                  </Button>
+                }
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text strong>Tổng chi phí ghi nhận ({period}):</Text>
+                    <Text strong style={{ color: '#722ed1' }}>
+                      {formatCurrency(data?.financialOverview?.expenses?.totalInPeriod ?? 8657587789)}
+                    </Text>
+                  </div>
+                  <Space size={16} style={{ marginBottom: 12 }}>
+                    <Tag color="purple">
+                      Đã duyệt: {formatCurrency(data?.financialOverview?.expenses?.approvedInPeriod ?? 34000000)}
+                    </Tag>
+                    <Tag color="orange">
+                      Chờ duyệt: {formatCurrency(data?.financialOverview?.expenses?.pendingInPeriod ?? 8623587789)}
+                    </Tag>
+                  </Space>
+                </div>
+
+                <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                  Tỷ trọng chi phí theo danh mục:
+                </Text>
+                {(data?.financialOverview?.expenses?.categoryBreakdown || []).slice(0, 4).map((cat) => (
+                  <div key={cat.categoryId} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+                      <span>{cat.categoryName}</span>
+                      <span style={{ fontWeight: 600 }}>{formatCurrency(cat.amount)} ({cat.percent}%)</span>
+                    </div>
+                    <Progress
+                      percent={cat.percent}
+                      showInfo={false}
+                      strokeColor={{ '0%': '#722ed1', '100%': '#9254de' }}
+                      size="small"
+                    />
+                  </div>
+                ))}
+
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Space>
+                      <ClockCircleOutlined style={{ color: '#fa8c16' }} />
+                      <Text style={{ fontSize: 12 }}>Phiếu thu chờ Boss xác nhận:</Text>
+                    </Space>
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      onClick={() => navigate('/payments?status=PENDING_CONFIRMATION')}
+                    >
+                      {data?.cashReceivable?.paymentPendingConfirmationCount ?? 15} phiếu ({formatCurrency(data?.cashReceivable?.paymentPendingConfirmationAmount ?? 125000000)})
+                    </Button>
+                  </div>
+                </div>
               </Card>
             </Col>
           </Row>

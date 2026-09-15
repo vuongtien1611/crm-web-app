@@ -199,7 +199,17 @@ export async function updateProjectStatusApi(projectId: string, action: string, 
   return res.json();
 }
 
-export async function recordAcceptanceApi(projectId: string, data: { customerContactId: string; acceptedByName: string; evidenceDocument: string }) {
+export async function recordAcceptanceApi(
+  projectId: string,
+  data: {
+    customerContactId?: string;
+    contactId?: string;
+    acceptedByName?: string;
+    representativeName?: string;
+    evidenceDocument?: string;
+    acceptanceEvidenceUrl?: string;
+  },
+) {
   const res = await fetchWithAuth(`/api/projects/${projectId}/request-acceptance`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

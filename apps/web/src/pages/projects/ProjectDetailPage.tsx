@@ -9,7 +9,7 @@ import {
   Typography,
   Spin,
   Progress,
-  message,
+  App,
   Tabs,
   Alert,
   Avatar,
@@ -32,6 +32,7 @@ import {
   UserOutlined,
   ExclamationCircleOutlined,
   CheckOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -67,6 +68,7 @@ import {
 const { Title, Text } = Typography;
 
 export const ProjectDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
@@ -86,6 +88,7 @@ export const ProjectDetailPage: React.FC = () => {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [acceptanceModalOpen, setAcceptanceModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [activeTabKey, setActiveTabKey] = useState<string>('1');
   const [selectedMilestone, setSelectedMilestone] = useState<ProjectMilestone | null>(null);
   const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<ProjectAttachment | null>(null);
@@ -537,7 +540,7 @@ export const ProjectDetailPage: React.FC = () => {
                 Bắt đầu triển khai
               </Button>
             )}
-            {isLeaderOrBoss && project.status === 'IN_PROGRESS' && (
+            {isLeaderOrBoss && (project.status === 'IN_PROGRESS' || project.status === 'ACCEPTANCE') && !project.acceptance && (
               <Button
                 type="primary"
                 icon={<CheckCircleOutlined />}
@@ -545,6 +548,14 @@ export const ProjectDetailPage: React.FC = () => {
                 onClick={() => setAcceptanceModalOpen(true)}
               >
                 Ghi nhận nghiệm thu
+              </Button>
+            )}
+            {project.acceptance && (
+              <Button
+                icon={<SafetyCertificateOutlined />}
+                onClick={() => setActiveTabKey('3')}
+              >
+                Xem nghiệm thu
               </Button>
             )}
             {isBossOrAdmin && project.status !== 'COMPLETED' && project.status !== 'CANCELLED' && (
@@ -646,7 +657,8 @@ export const ProjectDetailPage: React.FC = () => {
           {/* Tabs */}
           <div className="vmax-card" style={{ padding: '8px 20px 20px 20px', marginBottom: 20 }}>
             <Tabs
-              defaultActiveKey="1"
+              activeKey={activeTabKey}
+              onChange={setActiveTabKey}
               items={[
                 {
                   key: '1',
@@ -1030,13 +1042,15 @@ export const ProjectDetailPage: React.FC = () => {
         onSuccess={() => refetch()}
       />
 
-      <RecordAcceptanceModal
-        visible={acceptanceModalOpen}
-        projectId={project.id}
-        defaultContactId={project.contact_id}
-        onClose={() => setAcceptanceModalOpen(false)}
-        onSuccess={() => refetch()}
-      />
+      {isLeaderOrBoss && (project.status === 'IN_PROGRESS' || project.status === 'ACCEPTANCE') && !project.acceptance && (
+        <RecordAcceptanceModal
+          visible={acceptanceModalOpen}
+          projectId={project.id}
+          defaultContactId={project.contact_id}
+          onClose={() => setAcceptanceModalOpen(false)}
+          onSuccess={() => refetch()}
+        />
+      )}
 
       {/* Milestone Detail Modal */}
       <Modal

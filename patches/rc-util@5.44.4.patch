@@ -1,0 +1,114 @@
+diff --git a/es/isEqual.js b/es/isEqual.js
+index 703e47a8b7114025a166ecdbf765ee1aa37f4fbf..7a3a09a518c17b58cdbdc700bd6e906657e7d3d2 100644
+--- a/es/isEqual.js
++++ b/es/isEqual.js	
+@@ -14,39 +14,46 @@ function isEqual(obj1, obj2) {
+   var refSet = new Set();
+   function deepEqual(a, b) {
+     var level = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 1;
+-    var circular = refSet.has(a);
+-    warning(!circular, 'Warning: There may be circular references');
+-    if (circular) {
+-      return false;
+-    }
+     if (a === b) {
+       return true;
+     }
+     if (shallow && level > 1) {
+       return false;
+     }
++    var circular = refSet.has(a);
++    warning(!circular, 'Warning: There may be circular references');
++    if (circular) {
++      return false;
++    }
+     refSet.add(a);
+     var newLevel = level + 1;
+     if (Array.isArray(a)) {
+       if (!Array.isArray(b) || a.length !== b.length) {
++        refSet.delete(a);
+         return false;
+       }
+       for (var i = 0; i < a.length; i++) {
+         if (!deepEqual(a[i], b[i], newLevel)) {
++          refSet.delete(a);
+           return false;
+         }
+       }
++      refSet.delete(a);
+       return true;
+     }
+     if (a && b && _typeof(a) === 'object' && _typeof(b) === 'object') {
+       var keys = Object.keys(a);
+       if (keys.length !== Object.keys(b).length) {
++        refSet.delete(a);
+         return false;
+       }
+-      return keys.every(function (key) {
++      var allEqual = keys.every(function (key) {
+         return deepEqual(a[key], b[key], newLevel);
+       });
++      refSet.delete(a);
++      return allEqual;
+     }
++    refSet.delete(a);
+     // other
+     return false;
+   }
+diff --git a/lib/isEqual.js b/lib/isEqual.js
+index af34622fe2535fbeb037f6a859e4ceb165147fa4..0f3b3f2607756f1acbff55c241130e134eac08ff 100644
+--- a/lib/isEqual.js
++++ b/lib/isEqual.js	
+@@ -20,39 +20,46 @@ function isEqual(obj1, obj2) {
+   var refSet = new Set();
+   function deepEqual(a, b) {
+     var level = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 1;
+-    var circular = refSet.has(a);
+-    (0, _warning.default)(!circular, 'Warning: There may be circular references');
+-    if (circular) {
+-      return false;
+-    }
+     if (a === b) {
+       return true;
+     }
+     if (shallow && level > 1) {
+       return false;
+     }
++    var circular = refSet.has(a);
++    (0, _warning.default)(!circular, 'Warning: There may be circular references');
++    if (circular) {
++      return false;
++    }
+     refSet.add(a);
+     var newLevel = level + 1;
+     if (Array.isArray(a)) {
+       if (!Array.isArray(b) || a.length !== b.length) {
++        refSet.delete(a);
+         return false;
+       }
+       for (var i = 0; i < a.length; i++) {
+         if (!deepEqual(a[i], b[i], newLevel)) {
++          refSet.delete(a);
+           return false;
+         }
+       }
++      refSet.delete(a);
+       return true;
+     }
+     if (a && b && (0, _typeof2.default)(a) === 'object' && (0, _typeof2.default)(b) === 'object') {
+       var keys = Object.keys(a);
+       if (keys.length !== Object.keys(b).length) {
++        refSet.delete(a);
+         return false;
+       }
+-      return keys.every(function (key) {
++      var allEqual = keys.every(function (key) {
+         return deepEqual(a[key], b[key], newLevel);
+       });
++      refSet.delete(a);
++      return allEqual;
+     }
++    refSet.delete(a);
+     // other
+     return false;
+   }

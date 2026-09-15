@@ -76,6 +76,7 @@ h1, .ant-typography h1 { font-weight: 800 !important; }
   min-height: calc(100vh - 64px);
   max-width: 1600px;
   margin: 0 auto;
+  overflow-x: hidden;
 }
 
 @media (max-width: 768px) {
@@ -1853,20 +1854,57 @@ button.deal-commercial-pill:hover {
 
 /* 2. Detail Summary Cards */
 .vmax-summary-grid {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.vmax-summary-grid > .ant-row {
+  width: 100%;
+  align-items: stretch;
+}
+
+.vmax-summary-grid .ant-col {
+  display: flex !important;
+}
+
+.vmax-summary-grid .ant-col > div {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fallback if cards are direct children without Col */
+.vmax-summary-grid > .ant-row > .vmax-summary-card {
+  flex: 1 1 calc(25% - 16px);
+  min-width: 220px;
+  margin: 8px;
 }
 
 .vmax-summary-card {
   background: #ffffff;
-  border: 1px solid var(--vmax-border);
-  border-radius: 14px;
-  box-shadow: var(--vmax-shadow-sm);
-  padding: 16px 20px;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 3px 10px rgba(0, 0, 0, 0.02);
+  padding: 18px 22px;
   height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  transition: var(--vmax-transition);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.vmax-summary-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: transparent;
+  transition: background 0.25s ease;
 }
 
 .vmax-summary-card.clickable {
@@ -1876,15 +1914,19 @@ button.deal-commercial-pill:hover {
 .vmax-summary-card.clickable:hover,
 .vmax-summary-card:hover {
   border-color: rgba(12, 107, 55, 0.3);
-  box-shadow: var(--vmax-shadow);
+  box-shadow: 0 12px 24px -6px rgba(12, 107, 55, 0.09), 0 4px 8px -2px rgba(0, 0, 0, 0.04);
   transform: translateY(-2px);
+}
+
+.vmax-summary-card:hover::before {
+  background: linear-gradient(90deg, var(--vmax-green, #0C6B37), #34d399);
 }
 
 .vmax-summary-card-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .vmax-summary-card-content {
@@ -1901,65 +1943,113 @@ button.deal-commercial-pill:hover {
 }
 
 .vmax-summary-card-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--vmax-text-muted);
+  letter-spacing: 0.06em;
+  color: #64748b;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .vmax-summary-card-value {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
-  color: var(--vmax-text);
-  line-height: 1.2;
+  color: #0f172a;
+  line-height: 1.25;
   margin-top: 2px;
+  letter-spacing: -0.02em;
+  word-break: break-word;
 }
 
 .vmax-summary-card-subtitle {
-  font-size: 12px;
-  color: var(--vmax-text-muted);
-  margin-top: 4px;
+  font-size: 12.5px;
+  color: #64748b;
+  margin-top: 6px;
+  line-height: 1.4;
 }
 
 .vmax-summary-card-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
-  background: var(--vmax-green-soft);
-  color: var(--vmax-green);
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #f0fdf4;
+  color: #0c6b37;
+  border: 1px solid #dcfce7;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 22px;
   flex-shrink: 0;
+  transition: transform 0.25s ease, background-color 0.25s ease;
+}
+
+.vmax-summary-card:hover .vmax-summary-card-icon {
+  transform: scale(1.06);
+  background: #dcfce7;
+}
+
+/* Detail Page 2-Column Responsive Layout */
+.vmax-detail-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 24px;
+  align-items: start;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.vmax-detail-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.vmax-detail-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 1200px) {
+  .vmax-detail-layout {
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 992px) {
+  .vmax-detail-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 3. Detail Info Card */
 .vmax-info-card {
   background: #ffffff;
-  border: 1px solid var(--vmax-border);
+  border: 1px solid rgba(226, 232, 240, 0.85);
   border-radius: 16px;
-  box-shadow: var(--vmax-shadow-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
   margin-bottom: 20px;
   overflow: hidden;
-  transition: var(--vmax-transition);
+  transition: all 0.25s ease;
 }
 
 .vmax-info-card:hover {
-  box-shadow: var(--vmax-shadow);
+  box-shadow: 0 8px 24px -4px rgba(12, 107, 55, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  border-color: rgba(12, 107, 55, 0.22);
 }
 
 .vmax-info-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--vmax-border-light);
-  background: #FCFDFD;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
 }
 
 .vmax-info-card-header-left {
@@ -1972,38 +2062,58 @@ button.deal-commercial-pill:hover {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--vmax-green-soft);
-  color: var(--vmax-green);
+  background: #f0fdf4;
+  color: #0c6b37;
+  border: 1px solid #dcfce7;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
+  flex-shrink: 0;
 }
 
 .vmax-info-card-title {
   margin: 0 !important;
-  font-size: 15px !important;
+  font-size: 14px !important;
   font-weight: 700 !important;
-  color: var(--vmax-text) !important;
+  color: #0f172a !important;
+  letter-spacing: -0.01em;
 }
 
 .vmax-info-card-subtitle {
-  font-size: 12px;
-  color: var(--vmax-text-muted);
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 1px;
 }
 
 .vmax-info-card-body {
-  padding: 20px;
+  padding: 14px 18px;
 }
 
 .vmax-info-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px 24px;
+  gap: 16px 20px;
 }
 
 .vmax-info-grid.columns-1 {
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.vmax-info-grid.columns-1 .vmax-info-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.vmax-info-grid.columns-1 .vmax-info-item:first-child {
+  padding-top: 2px;
+}
+
+.vmax-info-grid.columns-1 .vmax-info-item:last-child {
+  padding-bottom: 2px;
+  border-bottom: none;
 }
 
 .vmax-info-grid.columns-3 {
@@ -2040,16 +2150,16 @@ button.deal-commercial-pill:hover {
 }
 
 .vmax-info-item-icon {
-  font-size: 13px;
-  color: var(--vmax-text-muted);
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .vmax-info-item-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--vmax-text-muted);
+  letter-spacing: 0.05em;
+  color: #64748b;
 }
 
 .vmax-info-item-value-group {
@@ -2060,10 +2170,48 @@ button.deal-commercial-pill:hover {
 }
 
 .vmax-info-item-value {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--vmax-text);
+  color: #0f172a;
   word-break: break-word;
+  line-height: 1.4;
+}
+
+/* Personnel chip badge */
+.vmax-personnel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  padding: 4px 10px 4px 5px;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+}
+
+.vmax-personnel-chip:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+  box-shadow: 0 2px 8px rgba(12, 107, 55, 0.08);
+  transform: translateY(-1px);
+}
+
+.vmax-personnel-chip .chip-name {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: #0f172a;
+}
+
+.vmax-personnel-chip .chip-code {
+  font-size: 11px;
+  color: #64748b;
+  background: #ffffff;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-weight: 500;
 }
 
 /* 4. Detail Related Lists / Tables */

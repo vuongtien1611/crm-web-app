@@ -6,11 +6,12 @@ import {
   Typography,
   Table,
   Spin,
-  message,
+  App,
   Collapse,
   Divider,
   Modal,
   Descriptions,
+  Avatar,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -25,6 +26,10 @@ import {
   AuditOutlined,
   AppstoreOutlined,
   ClockCircleOutlined,
+  ShopOutlined,
+  TeamOutlined,
+  PhoneOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -59,6 +64,7 @@ import {
 const { Title, Text } = Typography;
 
 export const OrderDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [order, setOrder] = useState<OrderDetail | null>(null);
@@ -294,14 +300,27 @@ export const OrderDetailPage: React.FC = () => {
 
   // Metrics calculation
   const totalNetValue = order.items?.reduce((sum, it) => sum + (Number(it.net_service_value) || 0), 0) || 0;
-  const approvedItemsCount = order.items?.filter((it) => it.approval_status === 'APPROVED').length || 0;
+  const approvedItemsCount = (order.items || []).filter(
+    (i) => i.approval_status === 'APPROVED'
+  ).length;
+
+  const closingSales = Array.from(
+    new Map(
+      (order.items || [])
+        .filter((it) => it.closing_sale_name || it.closing_sale_id)
+        .map((it) => [
+          it.closing_sale_id,
+          { id: it.closing_sale_id, name: it.closing_sale_name, code: it.closing_sale_code },
+        ])
+    ).values()
+  );
 
   return (
     <div className="vmax-detail-page">
       {/* HEADER SECTION */}
       <DetailPageHeader
-        title={order.order_code}
-        code="ĐƠN HÀNG"
+        title={order.order_name || order.order_code}
+        code={order.order_name ? order.order_code : "ĐƠN HÀNG"}
         icon={<ShoppingOutlined />}
         status={getWorkflowStatusTag(order.workflow_status)}
         onBack={() => navigate('/orders')}
@@ -539,7 +558,7 @@ export const OrderDetailPage: React.FC = () => {
                             setCrModalVisible(true);
                           }}
                         >
-                          CR
+                          Đổi yêu cầu (CR)
                         </Button>
                       )}
                       {r.approval_status !== 'CANCELLED' && (
@@ -718,8 +737,10 @@ export const OrderDetailPage: React.FC = () => {
 
         {/* SIDEBAR COLUMN (RIGHT) */}
         <div className="vmax-detail-side">
+          {/* 1. Thông tin đối tác & Hợp đồng */}
           <DetailInfoCard
-            title="Thông tin khách hàng"
+            title="Thông tin đối tác & Hợp đồng"
+            icon={<ShopOutlined />}
             columns={1}
             items={[
               { label: 'Doanh nghiệp / Khách', value: <Text strong>{order.company_name}</Text> },
@@ -727,23 +748,88 @@ export const OrderDetailPage: React.FC = () => {
               { label: 'Người liên hệ', value: order.primary_contact_name || '—' },
               {
                 label: 'Số điện thoại',
-                value: order.primary_contact_phone ? (
-                  <a href={`tel:${order.primary_contact_phone}`} style={{ color: '#0C6B37', fontWeight: 500 }}>
-                    {order.primary_contact_phone}
+                value: (order.primary_contact_phone || order.account_phone) ? (
+                  <a href={`tel:${order.primary_contact_phone || order.account_phone}`} style={{ color: '#0C6B37', fontWeight: 600 }}>
+                    <PhoneOutlined style={{ marginRight: 6 }} />
+                    {order.primary_contact_phone || order.account_phone}
                   </a>
                 ) : '—'
+              },
+              {
+                label: 'Email liên hệ',
+                value: (order.primary_contact_email || order.account_email) ? (
+                  <a href={`mailto:${order.primary_contact_email || order.account_email}`} style={{ color: '#1677ff', fontWeight: 500 }}>
+                    <MailOutlined style={{ marginRight: 6 }} />
+                    {order.primary_contact_email || order.account_email}
+                  </a>
+                ) : '—'
+              },
+              {
+                label: 'Mã hợp đồng / đơn',
+                value: <Text strong style={{ color: '#0C6B37', fontFamily: 'monospace' }}>{order.order_code}</Text>
+              },
+              {
+                label: 'Trạng thái quy trình',
+                value: getWorkflowStatusTag(order.workflow_status)
               },
             ]}
           />
 
+          {/* 2. Nhân sự thực hiện */}
           <DetailInfoCard
-            title="Thông số hệ thống"
+            title="Nhân sự thực hiện"
+            icon={<TeamOutlined />}
             columns={1}
             items={[
-              { label: 'Mã đơn hàng', value: <Text strong style={{ color: '#0C6B37' }}>{order.order_code}</Text> },
-              { label: 'Trạng thái xử lý', value: getStatusLabel(order.workflow_status) },
-              { label: 'Thời điểm tạo', value: formatDateTime(order.created_at) },
-              { label: 'Lần cập nhật cuối', value: formatDateTime(order.updated_at) },
+              {
+                label: 'Nhân viên chốt sale (Closer)',
+                value: closingSales.length > 0 ? (
+                  <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 2 }}>
+                    {closingSales.map((sale) => (
+                      <div
+                        key={sale.id}
+                        className="vmax-personnel-chip"
+                        onClick={() => sale.id && navigate(`/employees/${sale.id}`)}
+                      >
+                        <Avatar size={22} style={{ backgroundColor: '#0C6B37', fontSize: 11, fontWeight: 700 }}>
+                          {sale.name ? sale.name.charAt(0).toUpperCase() : 'S'}
+                        </Avatar>
+                        <span className="chip-name">{sale.name}</span>
+                        {sale.code && <span className="chip-code">{sale.code}</span>}
+                      </div>
+                    ))}
+                  </Space>
+                ) : (
+                  <Text type="secondary" italic>Chưa ghi nhận</Text>
+                )
+              },
+              {
+                label: 'Quy mô dịch vụ',
+                value: <Tag color="blue">{order.items?.length || 0} dịch vụ trong đơn</Tag>
+              },
+            ]}
+          />
+
+          {/* 3. Mốc thời gian */}
+          <DetailInfoCard
+            title="Mốc thời gian"
+            icon={<ClockCircleOutlined />}
+            columns={1}
+            items={[
+              {
+                label: 'Thời điểm tạo đơn',
+                value: <Text>{formatDateTime(order.created_at)}</Text>
+              },
+              {
+                label: 'Cập nhật lần cuối',
+                value: <Text>{formatDateTime(order.updated_at)}</Text>
+              },
+              {
+                label: 'Xét duyệt gần nhất',
+                value: order.auditLogs && order.auditLogs.length > 0
+                  ? <Text type="secondary">{formatDateTime(order.auditLogs[0].created_at)} ({order.auditLogs[0].action})</Text>
+                  : <Text type="secondary">—</Text>
+              },
             ]}
           />
         </div>

@@ -1,15 +1,28 @@
-import { IsNumberString, IsNotEmpty, IsString } from 'class-validator';
+import { IsNumberString, IsOptional, IsString } from 'class-validator';
 
 export class RecordAcceptanceDto {
+  @IsOptional()
   @IsNumberString()
-  @IsNotEmpty()
-  customerContactId!: string;
+  customerContactId?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  acceptedByName!: string;
+  @IsOptional()
+  @IsNumberString()
+  contactId?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  evidenceDocument!: string;
+  acceptedByName?: string;
+
+  @IsOptional()
+  @IsString()
+  representativeName?: string;
+
+  @IsOptional()
+  @IsString()
+  evidenceDocument?: string;
+
+  @IsOptional()
+  @IsString()
+  acceptanceEvidenceUrl?: string;
 }
+

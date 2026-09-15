@@ -1,9 +1,11 @@
 import { fetchWithAuth } from './auth';
+import { FinanceOverviewData } from './finance';
 
 const API_BASE_URL = '/api';
 
 export interface ExecutiveDashboardData {
   period: string;
+  financialOverview?: FinanceOverviewData;
   cashReceivable: {
     grossCashConfirmedPeriod: number;
     grossCashConfirmedTotal: number;

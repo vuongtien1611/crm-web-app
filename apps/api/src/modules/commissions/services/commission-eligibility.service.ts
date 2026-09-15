@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { KyselyService } from '../../../database/kysely.service';
 import { CommissionPolicyMatcherService } from './commission-policy-matcher.service';
 
@@ -13,8 +13,9 @@ export class CommissionEligibilityService {
 
   /**
    * Re-evaluates commission eligibility for an OrderItem inside database transaction `trx`.
+   * Downstream caller is responsible for transaction scope.
    */
-  async evaluateOrderItemCommissions(trx: any, orderItemId: string, actorEmployeeId: string) {
+  async evaluateOrderItemCommissions(trx: any, orderItemId: string, actorEmployeeId?: string) {
     const item = await trx
       .selectFrom('order_items')
       .selectAll()
@@ -52,54 +53,66 @@ export class CommissionEligibilityService {
         .executeTakeFirst();
 
       if (saleEmployee) {
-        const policy = await this.policyMatcher.matchPolicy(
-          {
-            policyType: 'SALE',
-            positionId: saleEmployee.position_id,
-            serviceId: item.service_id,
-          },
-          trx,
-        );
+        let policy: any = null;
+        try {
+          policy = await this.policyMatcher.matchPolicy(
+            {
+              policyType: 'SALE',
+              positionId: saleEmployee.position_id,
+              serviceId: item.service_id,
+            },
+            trx,
+          );
+        } catch (err: any) {
+          if (err instanceof NotFoundException) {
+            this.logger.debug(`No matching SALE commission policy for employee ${item.closing_sale_id}, position ${saleEmployee.position_id}`);
+            policy = null;
+          } else {
+            throw err;
+          }
+        }
 
-        const rate = Number(policy.rate);
-        const base = Number(item.net_service_value);
-        const calculatedAmount = Number((base * rate).toFixed(2));
+        if (policy) {
+          const rate = Number(policy.rate);
+          const base = Number(item.net_service_value);
+          const calculatedAmount = Number((base * rate).toFixed(2));
 
-        const targetStatus = isDeliveryCompleted && isFullyPaid ? 'RELEASED' : 'UNEARNED';
+          const targetStatus = isDeliveryCompleted && isFullyPaid ? 'RELEASED' : 'UNEARNED';
 
-        const existingComm = await trx
-          .selectFrom('commissions')
-          .selectAll()
-          .where('order_item_id', '=', item.id)
-          .where('beneficiary_employee_id', '=', item.closing_sale_id)
-          .where('commission_type', '=', 'SALE')
-          .executeTakeFirst();
+          const existingComm = await trx
+            .selectFrom('commissions')
+            .selectAll()
+            .where('order_item_id', '=', item.id)
+            .where('beneficiary_employee_id', '=', item.closing_sale_id)
+            .where('commission_type', '=', 'SALE')
+            .executeTakeFirst();
 
-        if (existingComm) {
-          if (existingComm.status === 'UNEARNED' && targetStatus === 'RELEASED') {
+          if (existingComm) {
+            if (existingComm.status === 'UNEARNED' && targetStatus === 'RELEASED') {
+              await trx
+                .updateTable('commissions')
+                .set({
+                  status: 'RELEASED',
+                  updated_at: new Date(),
+                })
+                .where('id', '=', existingComm.id)
+                .execute();
+            }
+          } else {
             await trx
-              .updateTable('commissions')
-              .set({
-                status: 'RELEASED',
-                updated_at: new Date(),
+              .insertInto('commissions')
+              .values({
+                policy_id: policy.id,
+                order_item_id: item.id,
+                beneficiary_employee_id: item.closing_sale_id,
+                commission_type: 'SALE',
+                rate_snapshot: rate as any,
+                commission_base: base as any,
+                calculated_amount: calculatedAmount as any,
+                status: targetStatus,
               })
-              .where('id', '=', existingComm.id)
               .execute();
           }
-        } else {
-          await trx
-            .insertInto('commissions')
-            .values({
-              policy_id: policy.id,
-              order_item_id: item.id,
-              beneficiary_employee_id: item.closing_sale_id,
-              commission_type: 'SALE',
-              rate_snapshot: rate as any,
-              commission_base: base as any,
-              calculated_amount: calculatedAmount as any,
-              status: targetStatus,
-            })
-            .execute();
         }
       }
     }
@@ -138,53 +151,65 @@ export class CommissionEligibilityService {
 
           if (!devEmployee) continue;
 
-          const policy = await this.policyMatcher.matchPolicy(
-            {
-              policyType: 'PROJECT_DELIVERY',
-              positionId: devEmployee.position_id,
-              serviceId: item.service_id,
-              assigneeCount: primaryCount,
-            },
-            trx,
-          );
+          let policy: any = null;
+          try {
+            policy = await this.policyMatcher.matchPolicy(
+              {
+                policyType: 'PROJECT_DELIVERY',
+                positionId: devEmployee.position_id,
+                serviceId: item.service_id,
+                assigneeCount: primaryCount,
+              },
+              trx,
+            );
+          } catch (err: any) {
+            if (err instanceof NotFoundException) {
+              this.logger.debug(`No matching PROJECT_DELIVERY commission policy for employee ${assignment.employee_id}, position ${devEmployee.position_id}`);
+              policy = null;
+            } else {
+              throw err;
+            }
+          }
 
-          const rate = Number(policy.rate);
-          const base = Number(item.net_service_value);
-          const calculatedAmount = Number((base * rate).toFixed(2));
+          if (policy) {
+            const rate = Number(policy.rate);
+            const base = Number(item.net_service_value);
+            const calculatedAmount = Number((base * rate).toFixed(2));
 
-          const existingTechComm = await trx
-            .selectFrom('commissions')
-            .selectAll()
-            .where('order_item_id', '=', item.id)
-            .where('beneficiary_employee_id', '=', assignment.employee_id)
-            .where('commission_type', '=', 'PROJECT_DELIVERY')
-            .executeTakeFirst();
+            const existingTechComm = await trx
+              .selectFrom('commissions')
+              .selectAll()
+              .where('order_item_id', '=', item.id)
+              .where('beneficiary_employee_id', '=', assignment.employee_id)
+              .where('commission_type', '=', 'PROJECT_DELIVERY')
+              .executeTakeFirst();
 
-          if (existingTechComm) {
-            if (existingTechComm.status === 'UNEARNED' && targetTechStatus === 'CALCULATED') {
+            if (existingTechComm) {
+              if (existingTechComm.status === 'UNEARNED' && targetTechStatus === 'CALCULATED') {
+                await trx
+                  .updateTable('commissions')
+                  .set({
+                    status: 'CALCULATED',
+                    updated_at: new Date(),
+                  })
+                  .where('id', '=', existingTechComm.id)
+                  .execute();
+              }
+            } else {
               await trx
-                .updateTable('commissions')
-                .set({
-                  status: 'CALCULATED',
-                  updated_at: new Date(),
+                .insertInto('commissions')
+                .values({
+                  policy_id: policy.id,
+                  order_item_id: item.id,
+                  beneficiary_employee_id: assignment.employee_id,
+                  commission_type: 'PROJECT_DELIVERY',
+                  rate_snapshot: rate as any,
+                  commission_base: base as any,
+                  calculated_amount: calculatedAmount as any,
+                  status: targetTechStatus,
                 })
-                .where('id', '=', existingTechComm.id)
                 .execute();
             }
-          } else {
-            await trx
-              .insertInto('commissions')
-              .values({
-                policy_id: policy.id,
-                order_item_id: item.id,
-                beneficiary_employee_id: assignment.employee_id,
-                commission_type: 'PROJECT_DELIVERY',
-                rate_snapshot: rate as any,
-                commission_base: base as any,
-                calculated_amount: calculatedAmount as any,
-                status: targetTechStatus,
-              })
-              .execute();
           }
         }
       }

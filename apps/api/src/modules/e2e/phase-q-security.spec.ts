@@ -60,6 +60,7 @@ export async function runPhaseQSecuritySuite() {
   const expensesController = app.get(ExpensesController);
 
   const runId = Math.floor(Math.random() * 1000000);
+  let userRow: any = null;
 
   try {
     // ----------------------------------------------------------------
@@ -79,7 +80,7 @@ export async function runPhaseQSecuritySuite() {
 
     // Test token lifecycle
     const testUsername = `sec_user_${runId}`;
-    const [userRow] = await db
+    [userRow] = await db
       .insertInto('users')
       .values({
         username: testUsername,
@@ -363,6 +364,14 @@ export async function runPhaseQSecuritySuite() {
     console.log('PHASE Q SECURITY, IDOR & RBAC AUDIT: ALL PASSED! ✅');
     console.log('====================================================');
   } finally {
+    try {
+      if (userRow?.id) {
+        await db.deleteFrom('user_roles').where('user_id', '=', userRow.id as any).execute();
+        await db.deleteFrom('users').where('id', '=', userRow.id as any).execute();
+      }
+    } catch (cleanErr) {
+      console.warn('Cleanup warning in phase-q-security:', cleanErr);
+    }
     await app.close();
   }
 }

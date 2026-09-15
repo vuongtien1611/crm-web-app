@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Form, Select, message } from 'antd';
+import { Modal, Form, Select, App } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { addAssignmentApi } from '../../api/projects';
 import { getEmployees } from '../../api/employees';
@@ -17,6 +17,7 @@ export const AssignDevModal: React.FC<AssignDevModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -55,6 +56,7 @@ export const AssignDevModal: React.FC<AssignDevModalProps> = ({
       confirmLoading={loading}
       onCancel={onClose}
       destroyOnHidden
+      afterClose={() => form.resetFields()}
     >
       <Form className="vmax-form" form={form} layout="vertical">
         <Form.Item

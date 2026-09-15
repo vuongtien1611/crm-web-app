@@ -421,6 +421,7 @@ export class ProjectsController {
   }
 
   @Post('projects/:id/request-acceptance')
+  @Post('projects/:id/acceptance')
   async recordAcceptance(
     @Param('id') id: string,
     @Body() dto: RecordAcceptanceDto,

@@ -1,31 +1,79 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Modal, Form, Select, Avatar, Button, Space, Typography, Alert, Tag } from 'antd';
+import { UserOutlined, TrophyOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { setClosingSaleApi } from '../../api/deals';
+import { getEmployees, EmployeeItem } from '../../api/employees';
+
+const { Text } = Typography;
 
 interface Props {
   isOpen: boolean;
   dealId: string;
+  currentClosingSaleId?: string | null;
+  currentClosingSaleName?: string | null;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export const DealClosingSaleModal: React.FC<Props> = ({ isOpen, dealId, onClose, onSuccess }) => {
-  const [closingSaleId, setClosingSaleId] = useState('');
+export const DealClosingSaleModal: React.FC<Props> = ({
+  isOpen,
+  dealId,
+  currentClosingSaleId,
+  currentClosingSaleName,
+  onClose,
+  onSuccess,
+}) => {
+  const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (!isOpen) return null;
+  // Fetch sales employees
+  const { data: employeesData, isLoading: loadingEmployees } = useQuery({
+    queryKey: ['sales-employees-list'],
+    queryFn: () => getEmployees({ limit: 100 }),
+    enabled: isOpen,
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!closingSaleId.trim()) {
-      setError('Vui lòng chọn ID nhân viên Sale chốt');
+  const salesEmployees = useMemo(() => {
+    const all = employeesData?.data || [];
+    const salesOnly = all.filter((emp: EmployeeItem) => {
+      const posCode = emp.position?.code;
+      const hasSaleRole = (emp.roles || []).some(
+        (r) => r.code === 'SALE' || r.code === 'SALES_TEAM_LEADER' || r.code === 'BOSS' || r.code === 'ADMIN',
+      );
+      return (
+        posCode === 'SALE' ||
+        posCode === 'SALES_TEAM_LEADER' ||
+        posCode === 'BOSS' ||
+        posCode === 'ADMIN' ||
+        hasSaleRole
+      );
+    });
+    return salesOnly.length > 0 ? salesOnly : all;
+  }, [employeesData]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setError('');
+      if (currentClosingSaleId) {
+        form.setFieldsValue({ closingSaleId: String(currentClosingSaleId) });
+      } else {
+        form.resetFields();
+      }
+    }
+  }, [isOpen, currentClosingSaleId, form]);
+
+  const handleSubmit = async (values: { closingSaleId: string }) => {
+    if (!values.closingSaleId) {
+      setError('Vui lòng chọn họ và tên nhân viên Sale chốt');
       return;
     }
     setError('');
     setLoading(true);
 
     try {
-      await setClosingSaleApi(dealId, closingSaleId);
+      await setClosingSaleApi(dealId, String(values.closingSaleId));
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -36,50 +84,105 @@ export const DealClosingSaleModal: React.FC<Props> = ({ isOpen, dealId, onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 text-slate-100 shadow-2xl">
-        <h2 className="text-lg font-bold mb-4 border-b border-slate-800 pb-2">Thiết lập Sale chốt hợp đồng</h2>
-
-        <p className="text-xs text-slate-400 mb-4">
-          Chỉ định nhân viên được ghi nhận hoa hồng chốt cơ hội này. Bắt buộc trước khi đánh dấu THẮNG DEAL.
-        </p>
-
-        {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              ID Nhân viên Sale chốt *
-            </label>
-            <input
-              type="number"
-              value={closingSaleId}
-              onChange={(e) => setClosingSaleId(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-              placeholder="Ví dụ: 1"
-              required
-            />
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
-            >
-              {loading ? 'Đang lưu...' : 'Lưu Sale chốt'}
-            </button>
-          </div>
-        </form>
+    <Modal
+      title={
+        <Space>
+          <TrophyOutlined style={{ color: '#0C6B37', fontSize: 18 }} />
+          <span style={{ fontWeight: 600 }}>Thiết lập Sale chốt hợp đồng</span>
+        </Space>
+      }
+      open={isOpen}
+      destroyOnHidden
+      onCancel={onClose}
+      footer={null}
+      afterClose={() => {
+        form.resetFields();
+        setError('');
+      }}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Chỉ định nhân viên Sale được ghi nhận hoa hồng chốt cơ hội này. Bắt buộc trước khi đánh dấu{' '}
+          <Tag color="green">THẮNG DEAL</Tag>.
+        </Text>
       </div>
-    </div>
+
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          showIcon
+          closable
+          style={{ marginBottom: 16 }}
+          onClose={() => setError('')}
+        />
+      )}
+
+      <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form.Item
+          name="closingSaleId"
+          label={
+            <span style={{ fontWeight: 600 }}>
+              Họ và tên nhân viên Sale chốt <span style={{ color: '#ff4d4f' }}>*</span>
+            </span>
+          }
+          rules={[{ required: true, message: 'Vui lòng nhập hoặc chọn họ và tên nhân viên Sale chốt' }]}
+        >
+          <Select
+            showSearch
+            placeholder="Nhập họ và tên hoặc mã nhân viên sale..."
+            loading={loadingEmployees}
+            allowClear
+            optionFilterProp="label"
+            filterOption={(input, option) => {
+              const label = (option?.label ?? '') as string;
+              return label.toLowerCase().includes(input.toLowerCase());
+            }}
+            options={salesEmployees.map((emp) => ({
+              value: String(emp.id),
+              label: `${emp.full_name} (${emp.employee_code})`,
+              item: emp,
+            }))}
+            optionRender={(option) => {
+              const emp = option.data.item as EmployeeItem;
+              const teamName = emp.currentTeam?.name;
+              const posName = emp.position?.name || 'Nhân viên Kinh doanh';
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+                  <Avatar size="small" icon={<UserOutlined />} style={{ backgroundColor: '#0C6B37' }}>
+                    {emp.full_name?.charAt(0)}
+                  </Avatar>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                      {emp.full_name}{' '}
+                      <span style={{ fontWeight: 400, color: '#64748b', fontSize: 12 }}>
+                        ({emp.employee_code})
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      {posName} {teamName ? `• ${teamName}` : ''}
+                    </div>
+                  </div>
+                </div>
+              );
+            }}
+          />
+        </Form.Item>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
+          <Button onClick={onClose} disabled={loading}>
+            Hủy
+          </Button>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={loading}
+            style={{ backgroundColor: '#0C6B37', borderColor: '#0C6B37' }}
+          >
+            Lưu Sale chốt
+          </Button>
+        </div>
+      </Form>
+    </Modal>
   );
 };
-

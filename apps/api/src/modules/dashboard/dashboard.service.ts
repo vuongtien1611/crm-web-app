@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional, Inject, forwardRef } from '@nestjs/common';
 import { KyselyService } from '../../database/kysely.service';
+import { FinanceService, FinanceOverviewData } from './finance.service';
 import { sql } from 'kysely';
 
 export interface ExecutiveDashboardData {
@@ -13,6 +14,7 @@ export interface ExecutiveDashboardData {
     installmentsOverdueCount: number;
     installmentsOverdueAmount: number;
   };
+  financialOverview?: FinanceOverviewData;
   sales: {
     totalLeads: number;
     potentialLeads: number;
@@ -93,7 +95,10 @@ export interface ExecutiveDashboardData {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly kysely: KyselyService) {}
+  constructor(
+    private readonly kysely: KyselyService,
+    private readonly financeService: FinanceService,
+  ) {}
 
   async getExecutiveDashboard(periodParam?: string): Promise<ExecutiveDashboardData> {
     const db = this.kysely.db;
@@ -478,6 +483,8 @@ export class DashboardService {
       status: oi.status,
     }));
 
+    const financialOverview = await this.financeService.getOverview(period);
+
     return {
       period,
       cashReceivable: {
@@ -489,6 +496,7 @@ export class DashboardService {
         installmentsOverdueCount,
         installmentsOverdueAmount,
       },
+      financialOverview,
       sales: {
         totalLeads,
         potentialLeads,

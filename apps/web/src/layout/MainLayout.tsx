@@ -68,13 +68,15 @@ export const MainLayout: React.FC = () => {
       { key: '/employee-accounts', icon: <SafetyCertificateOutlined />, label: 'Quản lý tài khoản nhân sự' },
       { key: '/employees', icon: <TeamOutlined />, label: 'Danh sách nhân sự' },
       { key: '/teams', icon: <UsergroupAddOutlined />, label: 'Teams' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày' },
-      { key: '/daily-reports?tab=weekly', icon: <CalendarOutlined />, label: 'Báo cáo tuần' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/leads', icon: <UsergroupAddOutlined />, label: 'Leads' },
       { key: '/deals', icon: <TrophyOutlined />, label: 'Deals' },
       { key: '/orders', icon: <FileTextOutlined />, label: 'Orders' },
       { key: '/subscriptions', icon: <SyncOutlined />, label: 'Subscriptions' },
       { key: '/projects', icon: <FolderOutlined />, label: 'Projects' },
+      { key: '/finance/overview', icon: <BankOutlined />, label: 'Tổng quan tài chính' },
+      { key: '/finance/receivables', icon: <DollarOutlined />, label: 'Công nợ phải thu' },
+      { key: '/finance/cashflow', icon: <SyncOutlined />, label: 'Sổ cái dòng tiền' },
       { key: '/payments', icon: <DollarOutlined />, label: 'Payments' },
       { key: '/commissions', icon: <AuditOutlined />, label: 'Commissions' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI' },
@@ -90,8 +92,7 @@ export const MainLayout: React.FC = () => {
       { key: '/deals', icon: <TrophyOutlined />, label: 'Deals Team' },
       { key: '/orders', icon: <FileTextOutlined />, label: 'Orders Team' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI & Doanh số Team' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày Team' },
-      { key: '/daily-reports?tab=weekly', icon: <CalendarOutlined />, label: 'Báo cáo tuần' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/teams', icon: <TeamOutlined />, label: 'Nhân sự Team' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
@@ -102,8 +103,7 @@ export const MainLayout: React.FC = () => {
       { key: '/deals', icon: <TrophyOutlined />, label: 'Deals của tôi' },
       { key: '/orders', icon: <FileTextOutlined />, label: 'Orders của tôi' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI & Doanh số' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày' },
-      { key: '/daily-reports?tab=history', icon: <ClockCircleOutlined />, label: 'Lịch sử báo cáo' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
   } else if (isDevLeader) {
@@ -113,8 +113,7 @@ export const MainLayout: React.FC = () => {
       { key: '/projects?tab=assign', icon: <UserAddOutlined />, label: 'Phân công Project' },
       { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Task & Tiến độ' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI Team' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày Team' },
-      { key: '/daily-reports?tab=weekly', icon: <CalendarOutlined />, label: 'Báo cáo tuần' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/teams', icon: <TeamOutlined />, label: 'Nhân sự Team' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
@@ -125,8 +124,7 @@ export const MainLayout: React.FC = () => {
       { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Tasks của tôi' },
       { key: '/commissions', icon: <AuditOutlined />, label: 'Hoa hồng cá nhân' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI cá nhân' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày' },
-      { key: '/daily-reports?tab=history', icon: <ClockCircleOutlined />, label: 'Lịch sử báo cáo' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
   } else if (isSeoLeader) {
@@ -136,8 +134,7 @@ export const MainLayout: React.FC = () => {
       { key: '/projects?tab=assign', icon: <UserAddOutlined />, label: 'Phân công SEO' },
       { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Task & Tiến độ' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI & Doanh số Team' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày Team' },
-      { key: '/daily-reports?tab=weekly', icon: <CalendarOutlined />, label: 'Báo cáo tuần' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/teams', icon: <TeamOutlined />, label: 'Nhân sự Team' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
@@ -148,8 +145,7 @@ export const MainLayout: React.FC = () => {
       { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Tasks của tôi' },
       { key: '/commissions', icon: <AuditOutlined />, label: 'Hoa hồng cá nhân' },
       { key: '/kpi', icon: <GiftOutlined />, label: 'KPI cá nhân' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày' },
-      { key: '/daily-reports?tab=history', icon: <ClockCircleOutlined />, label: 'Lịch sử báo cáo' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
   } else if (isAccountant) {
@@ -160,14 +156,14 @@ export const MainLayout: React.FC = () => {
       { key: '/expenses', icon: <WalletOutlined />, label: 'Chi phí' },
       { key: '/orders', icon: <FileTextOutlined />, label: 'Đơn hàng' },
       { key: '/subscriptions', icon: <SyncOutlined />, label: 'Dịch vụ định kỳ' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
     ];
   } else {
     // Default / Admin
     menuItems = [
       { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard điều hành' },
-      { key: '/daily-reports', icon: <FileDoneOutlined />, label: 'Báo cáo ngày' },
+      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
       { key: '/leads', icon: <UsergroupAddOutlined />, label: 'Leads' },
       { key: '/deals', icon: <TrophyOutlined />, label: 'Deals' },
       { key: '/orders', icon: <FileTextOutlined />, label: 'Orders' },
@@ -194,12 +190,8 @@ export const MainLayout: React.FC = () => {
   const exactMatch = menuItems.find((m) => m.key === fullPath);
   const selectedKey = exactMatch
     ? exactMatch.key
-    : location.pathname.startsWith('/daily-reports')
-    ? location.search.includes('tab=weekly')
-      ? '/daily-reports?tab=weekly'
-      : location.search.includes('tab=history')
-      ? '/daily-reports?tab=history'
-      : '/daily-reports'
+    : location.pathname.startsWith('/reports') || location.pathname.startsWith('/daily-reports')
+    ? '/reports'
     : location.pathname.startsWith('/projects')
     ? location.search.includes('tab=assign')
       ? '/projects?tab=assign'
@@ -259,8 +251,8 @@ export const MainLayout: React.FC = () => {
     const p = location.pathname;
     if (p.startsWith('/dashboard')) {
       items.push({ title: 'Tổng quan' });
-    } else if (p.startsWith('/daily-reports')) {
-      items.push({ title: 'Báo cáo ngày' });
+    } else if (p.startsWith('/reports') || p.startsWith('/daily-reports')) {
+      items.push({ title: 'Báo cáo' });
     } else if (p.startsWith('/leads')) {
       items.push({
         title: <span style={{ cursor: 'pointer' }} onClick={() => navigate('/leads')}>Khách hàng tiềm năng</span>,

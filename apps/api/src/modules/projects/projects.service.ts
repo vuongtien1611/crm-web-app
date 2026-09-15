@@ -733,15 +733,30 @@ export class ProjectsService {
         throw new BadRequestException('Project acceptance already recorded');
       }
 
+      const customerContactId = dto.customerContactId || dto.contactId;
+      if (!customerContactId) {
+        throw new BadRequestException('customerContactId or contactId is required');
+      }
+
+      const acceptedByName = dto.acceptedByName || dto.representativeName;
+      if (!acceptedByName) {
+        throw new BadRequestException('acceptedByName or representativeName is required');
+      }
+
+      const evidenceDocument = dto.evidenceDocument || dto.acceptanceEvidenceUrl;
+      if (!evidenceDocument) {
+        throw new BadRequestException('evidenceDocument or acceptanceEvidenceUrl is required');
+      }
+
       // Insert project_acceptances row
       const [acceptance] = await trx
         .insertInto('project_acceptances')
         .values({
           project_id: project.id,
-          customer_contact_id: dto.customerContactId as any,
-          accepted_by_name: dto.acceptedByName,
+          customer_contact_id: customerContactId as any,
+          accepted_by_name: acceptedByName,
           accepted_at: new Date(),
-          evidence_document: dto.evidenceDocument,
+          evidence_document: evidenceDocument,
           recorded_by_employee_id: recordedByEmployeeId as any,
         })
         .returningAll()

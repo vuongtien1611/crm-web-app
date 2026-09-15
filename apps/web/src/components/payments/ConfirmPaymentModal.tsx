@@ -56,23 +56,31 @@ export const ConfirmPaymentModal: React.FC<ConfirmPaymentModalProps> = ({
     >
       {payment && (
         <div style={{ marginBottom: 16 }}>
-          <Text type="secondary">Mã thanh toán: </Text>
-          <Text strong>{payment.payment_code}</Text>
-          <br />
-          <Text type="secondary">Số tiền thực thu nhận được: </Text>
-          <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
-            {Number(payment.gross_cash_amount).toLocaleString('vi-VN')} ₫
-          </Text>
+          <div style={{ background: '#F8FAFC', padding: 12, borderRadius: 8, marginBottom: 12, border: '1px solid #E2E8F0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text type="secondary">Mã thanh toán:</Text>
+              <Text strong>{payment.payment_code}</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Text type="secondary">Số tiền thực thu nhận được:</Text>
+              <Text strong style={{ color: '#0C6B37', fontSize: 16 }}>
+                {Number(payment.gross_cash_amount).toLocaleString('vi-VN')} ₫
+              </Text>
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: '#475569', background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '10px 12px', borderRadius: 8 }}>
+            ℹ️ <strong>Hậu quả nghiệp vụ:</strong> Xác nhận giao dịch sẽ chốt doanh thu tiền về tài khoản công ty, ghi nhận dòng tiền và kích hoạt điều kiện giải ngân hoa hồng/KPI.
+          </div>
         </div>
       )}
 
       <Form className="vmax-form" form={form} layout="vertical">
         <Form.Item
           name="installmentId"
-          label="ID đợt thanh toán đích (Tùy chọn phân bổ)"
-          extra="Nhập ID đợt thanh toán để phân bổ số tiền ngay khi xác nhận"
+          label="Mã đợt thanh toán phân bổ (Tùy chọn)"
+          extra="Để trống nếu chỉ muốn xác nhận tiền về và thực hiện phân bổ chi tiết sau tại màn hình đơn hàng."
         >
-          <InputNumber style={{ width: '100%' }} placeholder="Ví dụ: 1" min={1} />
+          <InputNumber style={{ width: '100%' }} placeholder="Nhập số thứ tự đợt (nếu có)" min={1} />
         </Form.Item>
 
         <Form.Item
@@ -84,7 +92,9 @@ export const ConfirmPaymentModal: React.FC<ConfirmPaymentModalProps> = ({
             style={{ width: '100%' }}
             min={1000}
             step={100000}
-            placeholder="50,000,000"
+            placeholder="50.000.000"
+            formatter={(value) => (value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '')}
+            parser={(value) => (value ? Number(value.replace(/\$\s?|(\.*)|(,*)/g, '')) : (0 as any))}
           />
         </Form.Item>
       </Form>

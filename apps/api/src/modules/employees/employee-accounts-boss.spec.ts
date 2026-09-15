@@ -37,6 +37,13 @@ async function runBossAccountManagementTests() {
   }
 
   const runId = Date.now().toString().slice(-6);
+  let testTeam: any = null;
+  let testUser: any = null;
+  let testEmployee: any = null;
+  let bossUser: any = null;
+  let bossEmployee: any = null;
+  let freshBossUser: any = null;
+  let pendingReq: any = null;
 
   try {
     // -------------------------------------------------------------
@@ -88,7 +95,7 @@ async function runBossAccountManagementTests() {
     // -------------------------------------------------------------
     // Setup test fixtures (Test Team, Position, User, Employee)
     // -------------------------------------------------------------
-    const [testTeam] = await db
+    [testTeam] = await db
       .insertInto('teams')
       .values({
         code: `TEAM-BOSS-TEST-${runId}`,
@@ -119,7 +126,7 @@ async function runBossAccountManagementTests() {
       parallelism: 4,
     });
 
-    const [testUser] = await db
+    [testUser] = await db
       .insertInto('users')
       .values({
         username: `test_emp_${runId}`,
@@ -130,7 +137,7 @@ async function runBossAccountManagementTests() {
       .returningAll()
       .execute();
 
-    const [testEmployee] = await db
+    [testEmployee] = await db
       .insertInto('employees')
       .values({
         employee_code: `EMP-TEST-${runId}`,
@@ -168,7 +175,7 @@ async function runBossAccountManagementTests() {
       bossPos = newBossPos;
     }
 
-    const [bossUser] = await db
+    [bossUser] = await db
       .insertInto('users')
       .values({
         username: `boss_user_${runId}`,
@@ -179,7 +186,7 @@ async function runBossAccountManagementTests() {
       .returningAll()
       .execute();
 
-    const [bossEmployee] = await db
+    [bossEmployee] = await db
       .insertInto('employees')
       .values({
         employee_code: `BOSS-TEST-${runId}`,
@@ -323,7 +330,7 @@ async function runBossAccountManagementTests() {
     );
 
     // Check request record created with PENDING
-    const pendingReq = await db
+    pendingReq = await db
       .selectFrom('password_reset_requests')
       .selectAll()
       .where('employee_id', '=', testEmployee.id as any)
@@ -388,7 +395,7 @@ async function runBossAccountManagementTests() {
     // 7. First-time PIN setup vs Change PIN tests
     // -------------------------------------------------------------
     // Create new BOSS user without PIN in boss_security_config
-    const freshBossUser = await db
+    freshBossUser = await db
       .insertInto('users')
       .values({
         username: `fresh_boss_${runId}`,
@@ -446,25 +453,40 @@ async function runBossAccountManagementTests() {
       'BOSS-24: PIN is stored as Argon2id hash, never plaintext',
     );
 
-    // Cleanup freshBossUser
-    await db.deleteFrom('boss_security_config').where('boss_user_id', '=', freshBossUser.id as any).execute();
-    await db.deleteFrom('users').where('id', '=', freshBossUser.id as any).execute();
-
-    // -------------------------------------------------------------
-    // Cleanup fixtures
-    // -------------------------------------------------------------
-    await db.deleteFrom('notifications').where('entity_id', '=', pendingReq?.id as any).execute();
-    await db.deleteFrom('password_reset_requests').where('employee_id', '=', testEmployee.id as any).execute();
-    await db.deleteFrom('audit_logs').where('entity_id', '=', testEmployee.id as any).execute();
-    await db.deleteFrom('team_memberships').where('employee_id', '=', testEmployee.id as any).execute();
-    await db.deleteFrom('employees').where('id', 'in', [testEmployee.id as any, bossEmployee.id as any]).execute();
-    await db.deleteFrom('boss_security_config').where('boss_user_id', '=', bossUser.id as any).execute();
-    await db.deleteFrom('users').where('id', 'in', [testUser.id as any, bossUser.id as any]).execute();
-    await db.deleteFrom('teams').where('id', '=', testTeam.id as any).execute();
   } catch (error: any) {
     console.error('Fatal test exception:', error);
     failCount++;
   } finally {
+    try {
+      if (freshBossUser?.id) {
+        await db.deleteFrom('boss_security_config').where('boss_user_id', '=', freshBossUser.id as any).execute();
+        await db.deleteFrom('users').where('id', '=', freshBossUser.id as any).execute();
+      }
+      if (pendingReq?.id) {
+        await db.deleteFrom('notifications').where('entity_id', '=', pendingReq.id as any).execute();
+      }
+      if (testEmployee?.id) {
+        await db.deleteFrom('password_reset_requests').where('employee_id', '=', testEmployee.id as any).execute();
+        await db.deleteFrom('audit_logs').where('entity_id', '=', testEmployee.id as any).execute();
+        await db.deleteFrom('team_memberships').where('employee_id', '=', testEmployee.id as any).execute();
+      }
+      const empIds = [testEmployee?.id, bossEmployee?.id].filter(Boolean);
+      if (empIds.length > 0) {
+        await db.deleteFrom('employees').where('id', 'in', empIds as any).execute();
+      }
+      if (bossUser?.id) {
+        await db.deleteFrom('boss_security_config').where('boss_user_id', '=', bossUser.id as any).execute();
+      }
+      const userIds = [testUser?.id, bossUser?.id].filter(Boolean);
+      if (userIds.length > 0) {
+        await db.deleteFrom('users').where('id', 'in', userIds as any).execute();
+      }
+      if (testTeam?.id) {
+        await db.deleteFrom('teams').where('id', '=', testTeam.id as any).execute();
+      }
+    } catch (cleanErr) {
+      console.warn('Cleanup warning in employee-accounts-boss:', cleanErr);
+    }
     await app.close();
   }
 
