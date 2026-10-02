@@ -35,6 +35,7 @@ import {
   DetailInfoCard,
   DetailRelatedList,
 } from '../../components/common/detail';
+import { PromoteDemoteModal } from '../../components/employees/PromoteDemoteModal';
 
 const { Title, Text } = Typography;
 
@@ -57,6 +58,8 @@ export const EmployeeDetailPage: React.FC = () => {
   const canViewFinancials = user?.roles?.some((r) =>
     ['BOSS', 'ADMIN', 'ACCOUNTANT'].includes(r)
   );
+  const isBossOrAdmin = user?.roles?.some((r) => ['BOSS', 'ADMIN'].includes(r));
+  const [promoteModalOpen, setPromoteModalOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -142,6 +145,20 @@ export const EmployeeDetailPage: React.FC = () => {
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/employees')}>
               Quay lại
             </Button>
+            {isBossOrAdmin && (
+              <Button
+                type="primary"
+                icon={<CrownOutlined />}
+                onClick={() => setPromoteModalOpen(true)}
+                style={{
+                  backgroundColor: '#D97706',
+                  borderColor: '#D97706',
+                  fontWeight: 600,
+                }}
+              >
+                Tăng / Giáng chức
+              </Button>
+            )}
             {canViewFinancials && (
               <>
                 <Button
@@ -345,6 +362,69 @@ export const EmployeeDetailPage: React.FC = () => {
               />
             </DetailRelatedList>
           </div>
+
+          {/* LỊCH SỬ CHỨC VỤ & BỔ NHIỆM */}
+          <div style={{ marginTop: 20 }}>
+            <DetailRelatedList
+              title="Lịch sử chức vụ & Quyết định bổ nhiệm"
+              count={data.positionHistory?.length || 0}
+            >
+              <Table
+                rowKey="historyId"
+                dataSource={data.positionHistory || []}
+                pagination={false}
+                scroll={{ x: 'max-content' }}
+                locale={{ emptyText: 'Chưa có lịch sử thay đổi chức vụ' }}
+                columns={[
+                  {
+                    title: 'Chức vụ',
+                    key: 'position',
+                    width: 200,
+                    render: (_: any, record: any) => (
+                      <Space>
+                        <Text strong>{record.positionName}</Text>
+                        <Tag color="purple">{record.positionCode}</Tag>
+                      </Space>
+                    ),
+                  },
+                  {
+                    title: 'Căn cứ / Ghi chú quyết định',
+                    dataIndex: 'note',
+                    key: 'note',
+                    render: (note: string | null) =>
+                      note ? <Text style={{ fontSize: 13 }}>{note}</Text> : <Text type="secondary">—</Text>,
+                  },
+                  {
+                    title: 'Từ ngày',
+                    dataIndex: 'effectiveFrom',
+                    key: 'effectiveFrom',
+                    width: 150,
+                    render: (d: string | null) =>
+                      d ? dayjs(d).format('DD/MM/YYYY HH:mm') : '—',
+                  },
+                  {
+                    title: 'Đến ngày',
+                    dataIndex: 'effectiveTo',
+                    key: 'effectiveTo',
+                    width: 150,
+                    render: (d: string | null) =>
+                      d ? dayjs(d).format('DD/MM/YYYY HH:mm') : <Tag color="success">Hiện tại</Tag>,
+                  },
+                  {
+                    title: 'Trạng thái',
+                    key: 'status',
+                    width: 130,
+                    render: (_: any, record: any) =>
+                      record.isCurrent ? (
+                        <Tag color="processing">Đang giữ chức</Tag>
+                      ) : (
+                        <Tag color="default">Đã kết thúc</Tag>
+                      ),
+                  },
+                ]}
+              />
+            </DetailRelatedList>
+          </div>
         </div>
 
         {/* Sidebar Column */}
@@ -484,6 +564,20 @@ export const EmployeeDetailPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Modal Tăng / Giáng chức */}
+      <PromoteDemoteModal
+        isOpen={promoteModalOpen}
+        employee={{
+          id: employee.id,
+          employee_code: employee.employee_code,
+          full_name: employee.full_name,
+          position: position,
+          currentTeam: currentTeam,
+        }}
+        onClose={() => setPromoteModalOpen(false)}
+        onSuccess={() => fetchDetail(employee.id)}
+      />
     </div>
   );
 };

@@ -13,7 +13,8 @@
     "seed:staging": "pnpm --filter api seed:staging",
     "test:uat": "pnpm --filter api test:phase-s-uat",
     "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "tunnel": "cloudflared tunnel --url http://localhost:5173"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

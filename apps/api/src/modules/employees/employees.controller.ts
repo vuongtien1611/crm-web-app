@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeAccountDto } from './dto/create-employee.dto';
+import { ChangePositionDto } from './dto/change-position.dto';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 
@@ -31,6 +32,17 @@ export class EmployeesController {
       throw new ForbiddenException('User is not associated with an employee profile');
     }
     return await this.employeesService.createEmployeeAccount(dto, String(actorEmployeeId));
+  }
+
+  @Post(':id/change-position')
+  @RequirePermissions('EMPLOYEE_UPDATE')
+  async changePosition(
+    @Param('id') id: string,
+    @Body() dto: ChangePositionDto,
+    @Req() req: any,
+  ) {
+    const actorEmployeeId = req.user?.employeeId;
+    return await this.employeesService.changePosition(id, dto, actorEmployeeId);
   }
 
   @Put(':id')

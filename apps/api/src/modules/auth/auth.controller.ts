@@ -49,9 +49,10 @@ export class AuthController {
     const result = await this.authService.login(dto, userAgent, ip);
 
     // Set HttpOnly Cookie for Refresh Token
+    const isSecure = process.env.NODE_ENV === 'production' || req.headers['x-forwarded-proto'] === 'https';
     res.setCookie('crm_refresh_token', result.refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isSecure,
       sameSite: 'lax',
       path: '/api/auth',
       maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
@@ -81,9 +82,10 @@ export class AuthController {
     const result = await this.authService.refresh(refreshToken, userAgent, ip);
 
     // Set rotated HttpOnly Cookie
+    const isSecure = process.env.NODE_ENV === 'production' || req.headers['x-forwarded-proto'] === 'https';
     res.setCookie('crm_refresh_token', result.refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isSecure,
       sameSite: 'lax',
       path: '/api/auth',
       maxAge: 7 * 24 * 60 * 60,

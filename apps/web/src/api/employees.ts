@@ -77,6 +77,18 @@ export interface EmployeeTeamHistoryItem {
   isCurrent: boolean;
 }
 
+export interface EmployeePositionHistoryItem {
+  historyId: string;
+  positionId: string;
+  positionCode: string;
+  positionName: string;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  isCurrent: boolean;
+  note: string | null;
+  createdAt: string | null;
+}
+
 export interface EmployeeDetailResponse {
   employee: {
     id: string;
@@ -99,6 +111,7 @@ export interface EmployeeDetailResponse {
   roles: EmployeeRole[];
   currentTeam: EmployeeTeam | null;
   teamHistory: EmployeeTeamHistoryItem[];
+  positionHistory?: EmployeePositionHistoryItem[];
 }
 
 export interface FormOptionsResponse {
@@ -188,3 +201,32 @@ export async function createEmployeeAccount(
 
   return res.json();
 }
+
+export interface ChangePositionPayload {
+  positionCode: string;
+  roleCode?: string;
+  actionType?: 'PROMOTION' | 'DEMOTION' | 'TRANSFER';
+  reason?: string;
+  updateTeamLeaderStatus?: boolean;
+}
+
+export async function changeEmployeePosition(
+  id: string,
+  payload: ChangePositionPayload,
+): Promise<any> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/employees/${id}/change-position`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Thay đổi chức vụ thất bại');
+  }
+
+  return res.json();
+}
+

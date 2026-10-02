@@ -36,6 +36,7 @@ import {
   FormOptionsResponse,
 } from '../../api/employees';
 import { createRowNavigateHandler } from '../../utils/tableUtils';
+import { PromoteDemoteModal } from '../../components/employees/PromoteDemoteModal';
 
 const { Title, Text } = Typography;
 
@@ -83,6 +84,9 @@ export const EmployeesListPage: React.FC = () => {
 
   const canCreate =
     user?.permissions?.includes('EMPLOYEE_CREATE') || user?.roles?.includes('ADMIN');
+
+  const isBossOrAdmin = user?.roles?.some((r) => ['BOSS', 'ADMIN'].includes(r));
+  const [promoteTargetEmployee, setPromoteTargetEmployee] = useState<EmployeeItem | null>(null);
 
   const loadOptions = async () => {
     try {
@@ -276,16 +280,31 @@ export const EmployeesListPage: React.FC = () => {
     {
       title: 'Thao tác',
       key: 'action',
-      width: 110,
+      width: 170,
       align: 'center' as const,
       render: (_: any, record: EmployeeItem) => (
-        <Button
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() => navigate(`/employees/${record.id}`)}
-        >
-          Chi tiết
-        </Button>
+        <Space size={4}>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => navigate(`/employees/${record.id}`)}
+          >
+            Chi tiết
+          </Button>
+          {isBossOrAdmin && record.status !== 'RESIGNED' && record.status !== 'TERMINATED' && (
+            <Button
+              type="text"
+              size="small"
+              icon={<CrownOutlined style={{ color: '#D97706' }} />}
+              onClick={() => setPromoteTargetEmployee(record)}
+              title="Tăng / Giáng chức"
+              style={{ color: '#D97706' }}
+            >
+              Bổ nhiệm
+            </Button>
+          )}
+        </Space>
       ),
     },
   ];
@@ -499,6 +518,24 @@ export const EmployeesListPage: React.FC = () => {
           scroll={{ x: 1200 }}
         />
       </Card>
+
+      {/* Modal Tăng / Giáng chức */}
+      <PromoteDemoteModal
+        isOpen={Boolean(promoteTargetEmployee)}
+        employee={
+          promoteTargetEmployee
+            ? {
+                id: promoteTargetEmployee.id,
+                employee_code: promoteTargetEmployee.employee_code,
+                full_name: promoteTargetEmployee.full_name,
+                position: promoteTargetEmployee.position,
+                currentTeam: promoteTargetEmployee.currentTeam,
+              }
+            : null
+        }
+        onClose={() => setPromoteTargetEmployee(null)}
+        onSuccess={() => loadData(meta.page, meta.limit)}
+      />
     </div>
   );
 };

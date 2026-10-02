@@ -11,6 +11,7 @@ import {
   CreateEmployeeAccountDto,
   COMPATIBILITY_MATRIX,
 } from './dto/create-employee.dto';
+import { ChangePositionDto } from './dto/change-position.dto';
 
 export interface EmployeeRecord {
   id: string;
@@ -520,6 +521,249 @@ export class EmployeesService {
   }
 
   // --------------------------------------------------
+  // CHANGE POSITION / PROMOTE / DEMOTE
+  // --------------------------------------------------
+  async changePosition(
+    employeeId: string | number,
+    dto: ChangePositionDto,
+    actorEmployeeId?: string | number | null,
+  ) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      // 1. Fetch current employee
+      const emp = await trx
+        .selectFrom('employees')
+        .selectAll()
+        .where('employees.id', '=', employeeId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!emp) {
+        throw new NotFoundException(`Nhân viên #${employeeId} không tồn tại`);
+      }
+
+      if (emp.status === 'RESIGNED' || emp.status === 'TERMINATED') {
+        throw new BadRequestException('Nhân viên đã nghỉ việc, không thể thay đổi chức vụ');
+      }
+
+      let currentPos: any = null;
+      if (emp.position_id) {
+        currentPos = await trx
+          .selectFrom('positions')
+          .selectAll()
+          .where('id', '=', emp.position_id as any)
+          .executeTakeFirst();
+      }
+
+      // 2. Validate target position
+      const targetPos = await trx
+        .selectFrom('positions')
+        .selectAll()
+        .where('code', '=', dto.positionCode)
+        .executeTakeFirst();
+
+      if (!targetPos) {
+        throw new NotFoundException(`Chức vụ '${dto.positionCode}' không tồn tại trong hệ thống`);
+      }
+
+      // If target position is BOSS, check Single Active Boss constraint
+      if (targetPos.code === 'BOSS') {
+        await this.checkSingleActiveBossConstraint(trx, employeeId, emp.user_id);
+      }
+
+      // 3. Determine matching roleCode if not specified
+      const roleCodeToApply = dto.roleCode || dto.positionCode;
+      let targetRole: any = null;
+      if (roleCodeToApply) {
+        targetRole = await trx
+          .selectFrom('roles')
+          .selectAll()
+          .where('code', '=', roleCodeToApply)
+          .executeTakeFirst();
+      }
+
+      // 4. Update employee record
+      const [updatedEmp] = await trx
+        .updateTable('employees')
+        .set({
+          position_id: targetPos.id as any,
+          updated_at: new Date(),
+        })
+        .where('id', '=', employeeId as any)
+        .returningAll()
+        .execute();
+
+      // 5. Update user_roles if linked user account exists and targetRole exists
+      if (emp.user_id && targetRole) {
+        await trx.deleteFrom('user_roles').where('user_id', '=', emp.user_id as any).execute();
+        await trx.insertInto('user_roles').values({
+          user_id: emp.user_id as any,
+          role_id: targetRole.id as any,
+        }).execute();
+      }
+
+      // 6. Handle Team Leader status if requested or if demoted/promoted
+      const currentMembership = await trx
+        .selectFrom('team_memberships')
+        .selectAll()
+        .where('employee_id', '=', employeeId as any)
+        .where(sql`effective_range @> NOW()` as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (currentMembership) {
+        const isPromotingToLeader = targetPos.code.endsWith('_TEAM_LEADER');
+        const wasLeader = currentMembership.is_leader;
+        let shouldBecomeLeader: boolean | null = null;
+
+        if (dto.updateTeamLeaderStatus !== undefined) {
+          shouldBecomeLeader = dto.updateTeamLeaderStatus;
+        } else if (!isPromotingToLeader && wasLeader) {
+          shouldBecomeLeader = false;
+        }
+
+        if (shouldBecomeLeader === true && !wasLeader) {
+          // Check and relieve existing leader of the team if any
+          const existingLeader = await trx
+            .selectFrom('team_memberships')
+            .selectAll()
+            .where('team_id', '=', currentMembership.team_id as any)
+            .where('is_leader', '=', true)
+            .where('employee_id', '!=', employeeId as any)
+            .where(sql`effective_range @> NOW()` as any)
+            .forUpdate()
+            .executeTakeFirst();
+
+          if (existingLeader) {
+            // Close old leader range
+            await trx
+              .updateTable('team_memberships')
+              .set({ effective_range: sql`tstzrange(lower(effective_range), NOW(), '[)')` as any })
+              .where('id', '=', existingLeader.id as any)
+              .execute();
+
+            // Insert non-leader membership for old leader
+            await trx
+              .insertInto('team_memberships')
+              .values({
+                team_id: existingLeader.team_id,
+                employee_id: existingLeader.employee_id,
+                is_leader: false,
+                effective_range: sql`tstzrange(NOW(), NULL, '[)')` as any,
+              })
+              .execute();
+          }
+
+          // Close current membership range for candidate
+          await trx
+            .updateTable('team_memberships')
+            .set({ effective_range: sql`tstzrange(lower(effective_range), NOW(), '[)')` as any })
+            .where('id', '=', currentMembership.id as any)
+            .execute();
+
+          // Insert new leader membership
+          await trx
+            .insertInto('team_memberships')
+            .values({
+              team_id: currentMembership.team_id,
+              employee_id: employeeId as any,
+              is_leader: true,
+              effective_range: sql`tstzrange(NOW(), NULL, '[)')` as any,
+            })
+            .execute();
+        } else if (shouldBecomeLeader === false && wasLeader) {
+          // Relieve from leader to standard member
+          await trx
+            .updateTable('team_memberships')
+            .set({ effective_range: sql`tstzrange(lower(effective_range), NOW(), '[)')` as any })
+            .where('id', '=', currentMembership.id as any)
+            .execute();
+
+          await trx
+            .insertInto('team_memberships')
+            .values({
+              team_id: currentMembership.team_id,
+              employee_id: employeeId as any,
+              is_leader: false,
+              effective_range: sql`tstzrange(NOW(), NULL, '[)')` as any,
+            })
+            .execute();
+        }
+      }
+
+      // 7. Update employee_position_history
+      // Close any open current range
+      await trx
+        .updateTable('employee_position_history')
+        .set({
+          effective_range: sql`tstzrange(lower(effective_range), NOW(), '[)')` as any,
+        })
+        .where('employee_id', '=', employeeId as any)
+        .where(sql`upper_inf(effective_range)` as any)
+        .execute();
+
+      const actionType = dto.actionType || (
+        targetPos.code.endsWith('_TEAM_LEADER') && !currentPos?.code?.endsWith('_TEAM_LEADER')
+          ? 'PROMOTION'
+          : !targetPos.code.endsWith('_TEAM_LEADER') && currentPos?.code?.endsWith('_TEAM_LEADER')
+            ? 'DEMOTION'
+            : 'TRANSFER'
+      );
+
+      const noteText = dto.reason?.trim()
+        ? `[${actionType}] ${dto.reason.trim()}`
+        : `[${actionType}] Thay đổi chức vụ từ ${currentPos?.name || currentPos?.code || 'Chưa phân'} sang ${targetPos.name} (${targetPos.code})`;
+
+      await trx
+        .insertInto('employee_position_history')
+        .values({
+          employee_id: employeeId as any,
+          position_id: targetPos.id as any,
+          effective_range: sql`tstzrange(NOW(), NULL, '[)')` as any,
+          note: noteText,
+          created_at: new Date(),
+        })
+        .execute();
+
+      // 8. Audit log
+      await trx
+        .insertInto('audit_logs')
+        .values({
+          action: 'EMPLOYEE_POSITION_CHANGE',
+          entity_type: 'EMPLOYEE',
+          entity_id: employeeId as any,
+          actor_employee_id: actorEmployeeId as any,
+          payload_before_sanitized: JSON.stringify({
+            position_id: emp.position_id,
+            position_code: currentPos?.code || null,
+            position_name: currentPos?.name || null,
+          }),
+          payload_after_sanitized: JSON.stringify({
+            position_id: targetPos.id,
+            position_code: targetPos.code,
+            position_name: targetPos.name,
+            action_type: actionType,
+            role_code: roleCodeToApply,
+            reason: dto.reason || null,
+          }),
+        })
+        .execute();
+
+      return {
+        id: String(updatedEmp.id),
+        employeeCode: updatedEmp.employee_code,
+        fullName: updatedEmp.full_name,
+        newPosition: {
+          id: String(targetPos.id),
+          code: targetPos.code,
+          name: targetPos.name,
+        },
+        actionType,
+        note: noteText,
+      };
+    });
+  }
+
+  // --------------------------------------------------
   // METADATA OPTIONS FOR FORM CREATION
   // --------------------------------------------------
   async getFormOptions() {
@@ -876,6 +1120,36 @@ export class EmployeesService {
       isCurrent: Boolean(h.is_current),
     }));
 
+    const positionHistoryRows = await db
+      .selectFrom('employee_position_history')
+      .innerJoin('positions', 'positions.id', 'employee_position_history.position_id')
+      .select([
+        'employee_position_history.id as history_id',
+        'employee_position_history.note',
+        'employee_position_history.created_at',
+        sql`lower(employee_position_history.effective_range)`.as('effective_from'),
+        sql`upper(employee_position_history.effective_range)`.as('effective_to'),
+        sql`employee_position_history.effective_range @> NOW()`.as('is_current'),
+        'positions.id as position_id',
+        'positions.code as position_code',
+        'positions.name as position_name',
+      ])
+      .where('employee_position_history.employee_id', '=', id as any)
+      .orderBy(sql`lower(employee_position_history.effective_range)`, 'desc')
+      .execute();
+
+    const positionHistory = positionHistoryRows.map((p: any) => ({
+      historyId: String(p.history_id),
+      positionId: String(p.position_id),
+      positionCode: p.position_code,
+      positionName: p.position_name,
+      effectiveFrom: p.effective_from ? new Date(p.effective_from).toISOString() : null,
+      effectiveTo: p.effective_to ? new Date(p.effective_to).toISOString() : null,
+      isCurrent: Boolean(p.is_current),
+      note: p.note,
+      createdAt: p.created_at ? new Date(p.created_at).toISOString() : null,
+    }));
+
     return {
       employee: {
         id: String(emp.employee_id),
@@ -919,6 +1193,7 @@ export class EmployeesService {
           }
         : null,
       teamHistory,
+      positionHistory,
     };
   }
 }

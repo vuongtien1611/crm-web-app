@@ -518,6 +518,7 @@ export const LeadDetailPage: React.FC = () => {
       <LeadAssignModal
         isOpen={isAssignOpen}
         leadId={lead.id}
+        currentSaleId={lead.assigned_sale_id}
         onClose={() => setIsAssignOpen(false)}
         onSuccess={() => fetchDetail(false)}
       />
