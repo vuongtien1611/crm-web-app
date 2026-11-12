@@ -40,7 +40,7 @@
 | **AUD-016** | Giảm sử dụng `any` trong Backend | **PARTIAL** | `kysely.service.ts` (`CrmDatabase`/`CrmTransaction`), `projects`, `orders`, `payments`, `payroll`, `deals`, `employees`, `employee-accounts`, `subscriptions`, `commission-eligibility`, `kpi-evaluation`, `teams`, `daily-reports`, `weekly-reports`, `organization-chart`, `notifications` | `pnpm --filter shared build && pnpm --filter api build` exit 0; kiểm đếm tự động `apps/api/src` (non-spec, 189 files): `Transaction<any>` **`11 -> 0`**, `Kysely<any>` **`2 -> 0`**, `as any` **`871 -> 856`**, `: any` **`289 -> 272`**, `any[]` **`18 -> 16`** | **Còn PARTIAL:** `CrmDynamicRow = Record<string, any>` là type bridge tạm thời thay cho `kysely-codegen`; còn `856 as any`, `272 : any`, `16 any[]` tập trung tại `daily-reports.service.ts`, `teams.service.ts`, `employees.service.ts`, `subscriptions.service.ts`, `projects.service.ts`, `leads.service.ts` |
 | **AUD-017** | Chuẩn hóa API Command/Action | **VERIFIED** | `docs/API_WORKFLOW_COMMAND_GUIDE.md`, `leads/deals/orders/daily-reports/teams/org-chart` controllers | `order-integration.spec.ts` (`29/29 PASS`), `lead-integration.spec.ts` (`11/11`), `deal-integration.spec.ts` (`12/12`), `phase-i-daily-reports.spec.ts` (`54/54`), giữ nguyên 100% đường dẫn API | Cần cập nhật guide khi thêm state-machine endpoint mới |
 | **AUD-018** | Chuẩn hóa API Response/Error | **VERIFIED** | `apps/api/src/common/filters/all-exceptions.filter.ts`, `apps/api/src/main.ts`, `apps/web/src/api/auth.ts` *(sửa `logoutApi` bỏ `Content-Type: application/json` khi body rỗng)* | `verify-audit-16-30-quality.ts` (`27/27 PASS` cho 400/401/403/404/409/500 & anti-leak); Browser UAT final run `0` HTTP >= 400 errors | Một số FastifyError ngoại lệ non-`HttpException` vẫn rơi vào fallback 500 nếu client gửi malformed JSON headers |
-| **AUD-019** | Mở rộng CI Automated Testing | **PARTIAL / NOT VERIFIED (Remote Runner Pending)** | `.github/workflows/ci.yml`, `apps/api/package.json`, `apps/api/scripts/run-isolated-test.js`, `apps/api/scripts/seed-master.js`, `expense-integration.spec.ts` | Gỡ toàn bộ hardcode `crm_db`; CI dùng `crm_test_db` + trigger `feature/**` + `pnpm --filter shared build` + `pnpm db:migrate` + `pnpm --filter api db:seed:master`; guard chặn `crm_db` PASS (`exit 1`); giả lập local trên DB sạch `crm_ci_sim_test` (`migrate -> seed -> test:payroll 11/11`) PASS | Chưa xác nhận kết quả thực tế từ remote GitHub Actions runner sau khi push nhánh (cập nhật ngay ở mục 4.4) |
+| **AUD-019** | Mở rộng CI Automated Testing | **VERIFIED** | `.github/workflows/ci.yml`, `apps/api/package.json`, `apps/api/scripts/run-isolated-test.js`, `apps/api/scripts/seed-master.js`, `expense-integration.spec.ts`, `account-integration.spec.ts`, `organization-chart.spec.ts` | Gỡ toàn bộ hardcode `crm_db`; CI dùng `crm_test_db` + trigger `feature/**` + `pnpm --filter shared build` + `pnpm db:migrate` + `pnpm --filter api db:seed:master`; guard chặn `crm_db` PASS (`exit 1`); **GitHub Actions Run [`43156249418`](https://github.com/vuongtien1611/crm-web-app/actions/runs/43156249418) (`499cb04`): `completed / success` (7/7 jobs PASS)** | Cần theo dõi thời lượng runner nếu bổ sung thêm E2E suite mới |
 | **AUD-020** | Cập nhật README | **VERIFIED** | `README.md` | Đối chiếu trực tiếp kiến trúc Monorepo, 9 canonical roles, Docker/migrations/seed và test commands với `package.json`; không lộ secret | Cần cập nhật định kỳ khi thêm env/scripts mới |
 | **AUD-021** | Đồng bộ Node.js / pnpm | **VERIFIED** | `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `Dockerfile`, `.github/workflows/cd.yml` | `node v20.20.2`, `pnpm 9.15.4`; `pnpm install --frozen-lockfile` exit 0 tại workspace (`545ms`) và trên thư mục sạch `/tmp/clean-pnpm-test` không có `node_modules` (`50.6s`, exit 0, áp dụng `rc-util@5.44.4.patch` thành công) | Yêu cầu môi trường build có `pnpm@9.15.4` và Node `>=20` |
 | **AUD-022** | Database Connection Pool | **VERIFIED** | `apps/api/src/config/env.config.ts`, `apps/api/src/config/env.config.spec.ts`, `apps/api/src/database/kysely.service.ts` | `env.config.spec.ts` (`7/7 PASS`), kiểm tra ràng buộc `DB_POOL_MAX`/`MIN` và timeouts | Cần tinh chỉnh `DB_POOL_MAX` theo số replica khi deploy đa instance |
@@ -121,17 +121,25 @@
     3. Bấm `Quay lại danh sách kỳ lương` -> `/payroll`: render bảng `3` kỳ lương hiện có.
     4. Mở `/payroll/26/employees/447` (dữ liệu hợp lệ trên `crm_db`): API trả `200`; `spinners = 0`; hiển thị đầy đủ phiếu lương `EMP-S1-EX-386084` / `Sale One 386084` (`payroll_26_447_200.png`).
 
-### 4.4. Trạng thái GitHub Actions Remote CI
-- *(Chờ cập nhật sau khi commit & push `feature/audit-16-30` lên `origin`)*
+### 4.4. Bằng chứng GitHub Actions Remote CI (`AUD-019`)
+- **Commit kích hoạt:** `499cb04fb64c5d332d473c5b9395bc46af6be941` trên nhánh `feature/audit-16-30` (sau khi khắc phục giả định fixture DB sạch từ run đầu [`43154341214`](https://github.com/vuongtien1611/crm-web-app/actions/runs/43154341214) vốn đạt 6/7 PASS).
+- **Workflow Run cuối:** [`43156249418`](https://github.com/vuongtien1611/crm-web-app/actions/runs/43156249418) — **`completed` / `success`** (`created_at: 2026-11-12T04:39:40Z`, `updated_at: 2026-11-12T04:41:58Z`).
+- **Kết quả 7/7 Jobs trên `ubuntu-latest` (`postgres:16-alpine` DB `crm_test_db` + `redis:7-alpine`, hoàn toàn độc lập staging):**
+  1. `Monorepo Build & TypeScript Gate` (`130976759804`): **success**
+  2. `Auth & Security Suite` (`130977057558`): **success**
+  3. `Core CRM Suite (Leads, Deals, Orders, Projects)` (`130977057578`): **success**
+  4. `Finance & Payroll Suite (Payments, Commissions, Payroll, Expenses, Subscriptions)` (`130977057580`): **success**
+  5. `HR, Organization & Teams Suite` (`130977057543`): **success**
+  6. `Operations, KPI & Background Jobs Suite` (`130977057569`): **success**
+  7. `Canonical E2E Concurrency Suite` (`130977057535`): **success**
 
 ---
 
 ## 5. CÁC VẤN ĐỀ CÒN PARTIAL / NOT VERIFIED / DEFERRED & VIỆC CÒN THIẾU
 
 1. **AUD-016 (`PARTIAL`):** Đã loại bỏ `11/11 Transaction<any>` và `2/2 Kysely<any>` qua `CrmDatabase`/`CrmTransaction` cùng một số type actor/payload trọng yếu, nhưng `CrmDynamicRow = Record<string, any>` vẫn là type bridge động và còn `856 as any`, `272 : any`, `16 any[]` trong `apps/api/src` (non-spec).
-2. **AUD-019 (Remote CI Runner):** Workflow `.github/workflows/ci.yml` và test DB guard đã sẵn sàng và kiểm chứng clean-DB local thành công; kết quả chạy remote GitHub Actions phụ thuộc quyền push nhánh và trạng thái runner trên `origin`.
-3. **AUD-023 (`DEFERRED`):** Hoãn chuyển đổi sang Cursor Pagination theo phạm vi UAT.
-4. **Phạm vi ngoài đợt này:** Các mục **AUD-001 đến AUD-015** chưa triển khai trong đợt này.
+2. **AUD-023 (`DEFERRED`):** Hoãn chuyển đổi sang Cursor Pagination theo phạm vi UAT.
+3. **Phạm vi ngoài đợt này:** Các mục **AUD-001 đến AUD-015** chưa triển khai trong đợt này.
 
 ---
 
@@ -139,6 +147,6 @@
 
 | Mục tiêu đánh giá | Quyết định | Lý do cụ thể |
 |---|---|---|
-| **Human UAT trên nhánh `feature/audit-16-30`** | **READY** | 188/188 Browser UAT checks + retest 4 case Payroll UAT Bug (`/payroll/12/employees/7` 404, `/payroll/12` 404, `/payroll`, `/payroll/26/employees/447` 200) PASS; toàn bộ targeted integration suites & builds PASS trên `crm_test_db` cô lập; DB staging `crm_db` nguyên vẹn |
-| **Merge vào `main`** | **NOT READY (Đang chờ Human UAT & CI/PR Review)** | Giữ quy tắc không tự ý merge `main` trong giai đoạn Human UAT; chờ hoàn tất xác nhận remote CI và Human UAT sign-off |
+| **Human UAT trên nhánh `feature/audit-16-30`** | **READY** | 188/188 Browser UAT checks + retest 4 case Payroll UAT Bug (`/payroll/12/employees/7` 404, `/payroll/12` 404, `/payroll`, `/payroll/26/employees/447` 200) PASS; toàn bộ integration suites & 7/7 remote CI jobs (`43156249418`) PASS trên `crm_test_db` cô lập; DB staging `crm_db` nguyên vẹn |
+| **Merge vào `main`** | **NOT READY (Đang chờ Human UAT & PR Review)** | Giữ quy tắc không tự ý merge `main` trong giai đoạn Human UAT (`uat-v1.0.0` `758cced3` và `main` `06eb712` giữ nguyên); sẵn sàng mở PR sau khi Human UAT sign-off |
 | **Triển khai Production** | **NOT READY** | Chưa hoàn tất Human UAT sign-off; `AUD-016` còn `PARTIAL` (`kysely-codegen`); đợt cải thiện STT 01–15 chưa triển khai |
