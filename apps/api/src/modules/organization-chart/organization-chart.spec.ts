@@ -95,9 +95,21 @@ async function runOrgChartIntegrationTests() {
     assert(bossPassed === true, 'TEST 1.1: BOSS role passes BossOnlyGuard with 200 OK');
 
     // -------------------------------------------------------------
-    // TEST 2: Canonical Tree Data
+    // TEST 2: Canonical Tree Data (ensure BOSS fixture exists on fresh DB)
     // -------------------------------------------------------------
     console.log('\n--- 2. Organization Tree Data Retrieval ---');
+    const posBoss = await db.selectFrom('positions').selectAll().where('code', '=', 'BOSS').executeTakeFirstOrThrow();
+    const empBoss = await db
+      .insertInto('employees')
+      .values({
+        employee_code: `EMP-BOSS-${runId}`,
+        full_name: `Boss Actor ${runId}`,
+        position_id: posBoss.id,
+        status: 'ACTIVE',
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
     const chartData = await orgChartService.getOrganizationChart();
     assert(chartData !== null && typeof chartData === 'object', 'TEST 2.1: Org chart data returned');
     assert(chartData.boss !== null, 'TEST 2.2: BOSS node exists at the top');
@@ -112,7 +124,6 @@ async function runOrgChartIntegrationTests() {
     const posSeo = await db.selectFrom('positions').selectAll().where('code', '=', 'SEO').executeTakeFirstOrThrow();
     const posSalesLeader = await db.selectFrom('positions').selectAll().where('code', '=', 'SALES_TEAM_LEADER').executeTakeFirstOrThrow();
     const posDevLeader = await db.selectFrom('positions').selectAll().where('code', '=', 'DEV_TEAM_LEADER').executeTakeFirstOrThrow();
-    const posBoss = await db.selectFrom('positions').selectAll().where('code', '=', 'BOSS').executeTakeFirstOrThrow();
 
     const roleSale = await db.selectFrom('roles').selectAll().where('code', '=', 'SALE').executeTakeFirstOrThrow();
     const roleDev = await db.selectFrom('roles').selectAll().where('code', '=', 'DEV').executeTakeFirstOrThrow();
@@ -193,19 +204,7 @@ async function runOrgChartIntegrationTests() {
       })
       .execute();
 
-    // Create Boss Employee for actor
-    const empBoss = await db
-      .insertInto('employees')
-      .values({
-        employee_code: `EMP-BOSS-${runId}`,
-        full_name: `Boss Actor ${runId}`,
-        position_id: posBoss.id,
-        status: 'ACTIVE',
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    assert(Boolean(empCandidate.id && teamSale.id && teamDev.id && teamSeo.id), 'TEST 3: Dynamic fixtures created successfully');
+    assert(Boolean(empCandidate.id && empBoss.id && teamSale.id && teamDev.id && teamSeo.id), 'TEST 3: Dynamic fixtures created successfully');
 
     // -------------------------------------------------------------
     // TEST 4: PRE-CHECK WORKLOAD API
