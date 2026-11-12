@@ -264,9 +264,9 @@ async function runRecurringIntegrationTests() {
     // --------------------------------------------------
     // 1. Fetch position & active service
     const positions = await kysely.db.selectFrom('positions').selectAll().execute();
-    const salePos = positions.find((p) => p.code === 'SALE_EXECUTIVE') || positions[0];
-    const devPos = positions.find((p) => p.code === 'DEV_FULLSTACK') || positions[0];
-    const bossPos = positions.find((p) => p.code === 'DIRECTOR') || positions[0];
+    const salePos = positions.find((p) => p.code === 'SALE') || positions[0];
+    const devPos = positions.find((p) => p.code === 'DEV') || positions[0];
+    const bossPos = positions.find((p) => p.code === 'BOSS') || positions[0];
 
     const services = await kysely.db.selectFrom('services').selectAll().execute();
     const recService = services.find((s) => s.is_recurring) || services[0];

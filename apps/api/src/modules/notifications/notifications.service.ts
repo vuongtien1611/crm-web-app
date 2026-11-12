@@ -1,6 +1,30 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, MessageEvent } from '@nestjs/common';
 import { KyselyService } from '../../database/kysely.service';
 import { sql } from 'kysely';
+import { Subject, Observable, interval, merge, of } from 'rxjs';
+import { filter, map } from 'rxjs/operators';
+
+export interface SseNotificationPayload {
+  id: string;
+  employee_id: string;
+  employeeId: string;
+  event_type: string;
+  eventType: string;
+  title: string;
+  content: string;
+  deep_link_url: string | null;
+  deepLinkUrl: string | null;
+  entity_type: string | null;
+  entityType: string | null;
+  entity_id: string | null;
+  entityId: string | null;
+  is_read: boolean;
+  isRead: boolean;
+  created_at: any;
+  createdAt: any;
+}
+
+export type NotificationItem = SseNotificationPayload;
 
 export interface CreateNotificationDto {
   employeeId: string | number;
@@ -21,7 +45,50 @@ export interface GetNotificationsFilter {
 
 @Injectable()
 export class NotificationsService {
+  private readonly notificationStream$ = new Subject<{
+    recipientEmployeeId: string;
+    data: SseNotificationPayload;
+  }>();
+
   constructor(private readonly kysely: KyselyService) {}
+
+  /**
+   * Subscribe to real-time notifications for a specific employee.
+   * Merges initial connection confirmation, employee events, and keepalive heartbeat.
+   */
+  getNotificationStream(employeeId: string | number): Observable<MessageEvent> {
+    const targetEmployeeId = String(employeeId);
+
+    const initial$ = of({
+      data: {
+        type: 'connected',
+        employeeId: targetEmployeeId,
+        timestamp: Date.now(),
+      },
+    } as MessageEvent);
+
+    const employeeEvents$ = this.notificationStream$.pipe(
+      filter((event) => String(event.recipientEmployeeId) === targetEmployeeId),
+      map((event) => ({
+        data: {
+          type: 'notification',
+          data: event.data,
+        },
+      } as MessageEvent)),
+    );
+
+    // Heartbeat ping every 20 seconds to prevent Cloudflare Tunnel or reverse proxies from dropping idle stream
+    const heartbeat$ = interval(20000).pipe(
+      map(() => ({
+        data: {
+          type: 'ping',
+          timestamp: Date.now(),
+        },
+      } as MessageEvent)),
+    );
+
+    return merge(initial$, employeeEvents$, heartbeat$);
+  }
 
   /**
    * Create an in-app notification for a recipient employee.
@@ -65,6 +132,33 @@ export class NotificationsService {
         .returningAll()
         .execute();
 
+      const mapped: SseNotificationPayload = {
+        id: String(notification.id),
+        employee_id: String(notification.employee_id),
+        employeeId: String(notification.employee_id),
+        event_type: notification.event_type,
+        eventType: notification.event_type,
+        title: notification.title,
+        content: notification.content,
+        deep_link_url: notification.deep_link_url,
+        deepLinkUrl: notification.deep_link_url,
+        entity_type: notification.entity_type,
+        entityType: notification.entity_type,
+        entity_id: notification.entity_id ? String(notification.entity_id) : null,
+        entityId: notification.entity_id ? String(notification.entity_id) : null,
+        is_read: Boolean(notification.is_read),
+        isRead: Boolean(notification.is_read),
+        created_at: notification.created_at,
+        createdAt: notification.created_at,
+      };
+
+      setImmediate(() => {
+        this.notificationStream$.next({
+          recipientEmployeeId: String(notification.employee_id),
+          data: mapped,
+        });
+      });
+
       return notification;
     } catch (err: any) {
       if (idempotencyKey && (err.code === '23505' || err.message?.includes('uq_notifications_idempotency_key') || err.message?.includes('unique constraint'))) {
@@ -103,7 +197,7 @@ export class NotificationsService {
       .distinct()
       .execute();
 
-    const created: any[] = [];
+    const created: NotificationItem[] = [];
     for (const emp of employees) {
       const notif = await this.createNotification(
         {
@@ -170,7 +264,7 @@ export class NotificationsService {
   async getUserNotifications(
     actorEmployeeId: string | number,
     filter?: GetNotificationsFilter,
-  ): Promise<{ data: any[]; total: number; unreadCount: number }> {
+  ): Promise<{ data: NotificationItem[]; total: number; unreadCount: number }> {
     const db = this.kysely.db;
     const limit = Math.max(1, Math.min(100, Number(filter?.limit) || 20));
     const offset = Math.max(0, Number(filter?.offset) || 0);

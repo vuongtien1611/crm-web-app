@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Optional } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction, CrmDynamicRow } from '../../database/kysely.service';
 import { CreatePaymentDto, AllocationItemDto } from './dto/create-payment.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { RejectPaymentDto } from './dto/reject-payment.dto';
@@ -8,6 +8,18 @@ import { CommissionEligibilityService } from '../commissions/services/commission
 import { KpiEvaluationService } from '../kpi/services/kpi-evaluation.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { sql } from 'kysely';
+
+interface PaymentAllocationRecord {
+  id: string | number;
+  payment_id?: string | number;
+  installment_id?: string | number;
+  gross_allocated_amount?: number;
+  net_eligible_amount?: number;
+  vat_allocated_amount?: number;
+  closing_sale_id?: string | number | null;
+  confirmed_at?: Date;
+  [key: string]: unknown;
+}
 
 @Injectable()
 export class PaymentsService {
@@ -109,13 +121,13 @@ export class PaymentsService {
         (a, b) => Number(a) - Number(b),
       );
 
-      let lockedInstallmentsMap: Record<string, any> = {};
+      let lockedInstallmentsMap: Record<string, CrmDynamicRow> = {};
 
       if (installmentIds.length > 0) {
         const lockedInstallments = await trx
           .selectFrom('payment_installments')
           .selectAll()
-          .where('id', 'in', installmentIds as any[])
+          .where('id', 'in', installmentIds)
           .forUpdate()
           .execute();
 
@@ -133,7 +145,7 @@ export class PaymentsService {
       // 4. Insert payment_allocations
       const affectedOrderItemIds = new Set<string>();
       const affectedServicePeriodIds = new Set<string>();
-      const createdAllocations: any[] = [];
+      const createdAllocations: PaymentAllocationRecord[] = [];
 
       for (const alloc of allocationsToApply) {
         const inst = lockedInstallmentsMap[String(alloc.installmentId)];
@@ -174,7 +186,7 @@ export class PaymentsService {
           .returningAll()
           .execute();
 
-        createdAllocations.push(createdAlloc);
+        createdAllocations.push(createdAlloc as PaymentAllocationRecord);
 
         affectedOrderItemIds.add(String(plan.order_item_id));
         if (inst.service_period_id) {
@@ -397,11 +409,11 @@ export class PaymentsService {
   // --------------------------------------------------
   // DEPENDENCY RE-EVALUATION HOOK
   // --------------------------------------------------
-  private async evaluateDependentProjects(trx: any, prerequisiteItemId: string, actorEmployeeId: string) {
+  private async evaluateDependentProjects(trx: CrmTransaction, prerequisiteItemId: string, actorEmployeeId: string) {
     const dependencies = await trx
       .selectFrom('order_item_dependencies')
       .selectAll()
-      .where('prerequisite_item_id', '=', prerequisiteItemId as any)
+      .where('prerequisite_item_id', '=', prerequisiteItemId)
       .execute();
 
     for (const dep of dependencies) {
@@ -553,7 +565,7 @@ export class PaymentsService {
     const confirmedAllocations = await this.kysely.db
       .selectFrom('payment_allocations')
       .innerJoin('payments', 'payments.id', 'payment_allocations.payment_id')
-      .where('payment_allocations.installment_id', 'in', instIds as any[])
+      .where('payment_allocations.installment_id', 'in', instIds)
       .where('payments.status', '=', 'CONFIRMED')
       .select((eb) => eb.fn.sum<number>('payment_allocations.gross_allocated_amount').as('sumPaid'))
       .executeTakeFirst();

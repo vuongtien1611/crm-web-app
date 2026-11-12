@@ -4,7 +4,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
 import { sql } from 'kysely';
 import * as argon2 from 'argon2';
 import {
@@ -89,7 +89,7 @@ export class EmployeesService {
    * Serializes checks via PostgreSQL transaction-level advisory lock to eliminate race conditions.
    */
   private async checkSingleActiveBossConstraint(
-    trx: any,
+    trx: CrmTransaction,
     targetEmployeeId?: string | number,
     targetUserId?: string | number,
   ) {

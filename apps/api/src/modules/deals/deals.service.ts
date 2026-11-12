@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { KyselyService, CrmDynamicRow } from '../../database/kysely.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { AssignDealDto } from './dto/assign-deal.dto';
@@ -275,7 +275,7 @@ export class DealsService {
   async assignDeal(id: string, dto: AssignDealDto) {
     const deal = await this.kysely.db
       .selectFrom('deals')
-      .select('id')
+      .select(['id', 'assigned_sale_id'])
       .where('id', '=', id as any)
       .executeTakeFirst();
 
@@ -350,13 +350,13 @@ export class DealsService {
     return updatedDeal;
   }
 
-  async markWon(id: string) {
+  async markWon(id: string, actor?: { employeeId?: string | number; id?: string | number }) {
     return await this.kysely.db.transaction().execute(async (trx) => {
       // 1. Lock Deal FOR UPDATE
       const deal = await trx
         .selectFrom('deals')
         .selectAll()
-        .where('id', '=', id as any)
+        .where('id', '=', id)
         .forUpdate()
         .executeTakeFirst();
 
@@ -373,7 +373,9 @@ export class DealsService {
       }
 
       // 2. Validate closing_sale_id
-      if (!deal.closing_sale_id) {
+      const closingSaleId = deal.closing_sale_id;
+
+      if (!closingSaleId) {
         throw new BadRequestException('closing_sale_id must be set before marking Deal as WON');
       }
 
@@ -382,6 +384,7 @@ export class DealsService {
         .updateTable('deals')
         .set({
           status: 'WON',
+          closing_sale_id: closingSaleId,
           won_at: new Date(),
           updated_at: new Date(),
         })
@@ -398,7 +401,7 @@ export class DealsService {
         .executeTakeFirst();
 
       // 4. Look up Active Order FOR UPDATE (Statuses: DRAFT, PENDING_APPROVAL, NEED_MORE_INFO, APPROVED, IN_PROGRESS)
-      let activeOrder: any = await trx
+      let activeOrder: CrmDynamicRow | undefined = await trx
         .selectFrom('orders')
         .selectAll()
         .where('account_id', '=', deal.account_id)
@@ -428,9 +431,10 @@ export class DealsService {
             .returningAll()
             .execute();
           activeOrder = newOrder;
-        } catch (err: any) {
+        } catch (err: unknown) {
+          const pgErr = err as { code?: string; message?: string };
           // Concurrency protection for unique constraint idx_one_active_order_per_account
-          if (err.code === '23505' || err.message?.includes('idx_one_active_order_per_account')) {
+          if (pgErr.code === '23505' || pgErr.message?.includes('idx_one_active_order_per_account')) {
             activeOrder = await trx
               .selectFrom('orders')
               .selectAll()
@@ -455,7 +459,7 @@ export class DealsService {
       }
 
       // 6. Find or create default active Service
-      let service: any = await trx
+      let service: CrmDynamicRow | undefined = await trx
         .selectFrom('services')
         .selectAll()
         .where('is_active', '=', true)
@@ -476,7 +480,7 @@ export class DealsService {
       }
 
       // 7. Find or create default requirement template
-      let template: any = await trx
+      let template: CrmDynamicRow | undefined = await trx
         .selectFrom('service_requirement_templates')
         .selectAll()
         .where('service_id', '=', service.id)
@@ -504,7 +508,7 @@ export class DealsService {
         .values({
           order_id: activeOrder.id,
           deal_id: deal.id,
-          closing_sale_id: deal.closing_sale_id,
+          closing_sale_id: closingSaleId as any,
           service_id: service.id,
           requirement_template_id: template.id,
           requirement_template_version: template.version,

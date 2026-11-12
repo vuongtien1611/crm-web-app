@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface WeeklyReportRecord {
   id: string;
@@ -68,7 +66,7 @@ export async function getWeeklyReportsApi(
   if (params?.status) query.append('status', params.status);
 
   const qs = query.toString() ? `?${query.toString()}` : '';
-  const response = await fetchWithAuth(`${API_BASE_URL}/weekly-reports${qs}`);
+  const response = await fetchWithAuth(buildApiUrl(`/weekly-reports${qs}`));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || 'Lỗi khi tải danh sách báo cáo tuần');
@@ -78,7 +76,7 @@ export async function getWeeklyReportsApi(
 }
 
 export async function getWeeklyReportByIdApi(id: string): Promise<WeeklyReportRecord> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/weekly-reports/${id}`);
+  const response = await fetchWithAuth(buildApiUrl(`/weekly-reports/${id}`));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || `Lỗi khi tải chi tiết báo cáo tuần #${id}`);
@@ -89,7 +87,7 @@ export async function getWeeklyReportByIdApi(id: string): Promise<WeeklyReportRe
 export async function createWeeklyReportApi(
   payload: CreateWeeklyReportPayload,
 ): Promise<WeeklyReportRecord> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/weekly-reports`, {
+  const response = await fetchWithAuth(buildApiUrl('/weekly-reports'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -105,7 +103,7 @@ export async function updateWeeklyReportApi(
   id: string,
   payload: UpdateWeeklyReportPayload,
 ): Promise<WeeklyReportRecord> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/weekly-reports/${id}`, {
+  const response = await fetchWithAuth(buildApiUrl(`/weekly-reports/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -118,7 +116,7 @@ export async function updateWeeklyReportApi(
 }
 
 export async function completeWeeklyReportApi(id: string): Promise<WeeklyReportRecord> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/weekly-reports/${id}/complete`, {
+  const response = await fetchWithAuth(buildApiUrl(`/weekly-reports/${id}/complete`), {
     method: 'PUT',
   });
   if (!response.ok) {
@@ -139,7 +137,7 @@ export async function synthesizeWeeklyReportApi(params: {
   query.append('week_end', params.week_end);
 
   const response = await fetchWithAuth(
-    `${API_BASE_URL}/weekly-reports/synthesize?${query.toString()}`,
+    buildApiUrl(`/weekly-reports/synthesize?${query.toString()}`),
   );
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -152,9 +150,9 @@ export async function downloadWeeklyReportExcel(
   id?: string,
   params?: QueryWeeklyReportsParams,
 ): Promise<void> {
-  let url = `${API_BASE_URL}/weekly-reports/export`;
+  let url = buildApiUrl('/weekly-reports/export');
   if (id) {
-    url = `${API_BASE_URL}/weekly-reports/export/${id}`;
+    url = buildApiUrl(`/weekly-reports/export/${id}`);
   } else if (params) {
     const query = new URLSearchParams();
     if (params.team_id) query.append('team_id', String(params.team_id));

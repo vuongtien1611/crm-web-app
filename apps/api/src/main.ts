@@ -1,10 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -43,6 +44,8 @@ async function bootstrap() {
     }),
   );
 
+  app.useGlobalFilters(new AllExceptionsFilter());
+
   const allowedOrigins: string[] = [frontendUrl];
   if (process.env.NODE_ENV !== 'production') {
     allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
@@ -77,8 +80,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
+  const logger = new Logger('Bootstrap');
   await app.listen(port, '0.0.0.0');
-  console.log(`🚀 NestJS Fastify CRM API running on http://0.0.0.0:${port}`);
+  logger.log(`🚀 NestJS Fastify CRM API running on http://0.0.0.0:${port}`);
 }
 
 bootstrap();

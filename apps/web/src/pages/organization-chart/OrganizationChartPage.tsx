@@ -15,7 +15,7 @@ import {
   Empty,
   Spin,
   Alert,
-  message,
+  App,
   Dropdown,
   Tabs,
   Segmented,
@@ -64,6 +64,8 @@ import 'reactflow/dist/style.css';
 import {
   fetchOrganizationChart,
   moveOrgChartMember,
+  fetchEmployeeWorkload,
+  EmployeeWorkloadResponse,
   OrgChartResponse,
   OrgEmployeeCard,
   OrgTeamData,
@@ -408,6 +410,7 @@ export const TeamCardView: React.FC<{
   searchKeyword = '',
   hasHandle = false,
 }) => {
+  const { message } = App.useApp();
   const deptConf = DEPT_METADATA[team.department.toUpperCase()] || DEFAULT_DEPT;
 
   const isCrossDeptWithDragged =
@@ -914,6 +917,7 @@ const nodeTypes = {
 // ============================================================================
 
 export const OrganizationChartPageContent: React.FC = () => {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const reactFlowInstance = useReactFlow();
 
@@ -953,6 +957,10 @@ export const OrganizationChartPageContent: React.FC = () => {
   const [manualTargetTeamId, setManualTargetTeamId] = useState<string | null>(null);
   const [manualMoveReason, setManualMoveReason] = useState<string>('');
 
+  // Pre-transfer Workload & Warning State
+  const [workload, setWorkload] = useState<EmployeeWorkloadResponse | null>(null);
+  const [loadingWorkload, setLoadingWorkload] = useState<boolean>(false);
+
   // Drawer: Member detail
   const [selectedMemberForDetail, setSelectedMemberForDetail] = useState<{
     employee: OrgEmployeeCard;
@@ -987,6 +995,7 @@ export const OrganizationChartPageContent: React.FC = () => {
       setManualMoveReason('');
       setDraggedMember(null);
       setDragOverTeamId(null);
+      setWorkload(null);
     },
     onError: (err: any) => {
       message.error(err.message || 'Không thể chuyển nhóm cho nhân viên');
@@ -1033,7 +1042,7 @@ export const OrganizationChartPageContent: React.FC = () => {
   }, []);
 
   const handleDropMemberOnTeam = useCallback(
-    (targetTeam: OrgTeamData) => {
+    async (targetTeam: OrgTeamData) => {
       if (!draggedMember) return;
 
       if (String(draggedMember.sourceTeam.id) === String(targetTeam.id)) {
@@ -1043,18 +1052,17 @@ export const OrganizationChartPageContent: React.FC = () => {
         return;
       }
 
-      // Check cross department
-      if (
-        (draggedMember.sourceTeam.department || '').toUpperCase() !==
-        (targetTeam.department || '').toUpperCase()
-      ) {
-        message.warning(
-          `Chưa hỗ trợ điều chuyển liên phòng ban (CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED): [${draggedMember.sourceTeam.department}] -> [${targetTeam.department}]`,
-        );
+      const validDepts = ['SALES', 'DEV', 'SEO'];
+      if (!validDepts.includes((targetTeam.department || '').toUpperCase())) {
+        message.error(`Không thể chuyển nhân sự vào phòng ban [${targetTeam.department}]. Chỉ hỗ trợ SALES, DEV, SEO.`);
         setDraggedMember(null);
         setDragOverTeamId(null);
         return;
       }
+
+      const isCross =
+        (draggedMember.sourceTeam.department || '').toUpperCase() !==
+        (targetTeam.department || '').toUpperCase();
 
       // Open confirm modal
       setPendingMoveData({
@@ -1064,6 +1072,18 @@ export const OrganizationChartPageContent: React.FC = () => {
       });
       setConfirmMoveModalOpen(true);
       setDragOverTeamId(null);
+      setWorkload(null);
+
+      // Load employee workload to alert BOSS if active work exists
+      try {
+        setLoadingWorkload(true);
+        const wl = await fetchEmployeeWorkload(draggedMember.employee.employeeId);
+        setWorkload(wl);
+      } catch (err) {
+        console.error('Failed to load employee workload', err);
+      } finally {
+        setLoadingWorkload(false);
+      }
     },
     [draggedMember],
   );
@@ -1079,11 +1099,22 @@ export const OrganizationChartPageContent: React.FC = () => {
 
   // Open direct Move Modal (from "..." menu)
   const handleOpenMoveModal = useCallback(
-    (member: OrgEmployeeCard, team: OrgTeamData) => {
+    async (member: OrgEmployeeCard, team: OrgTeamData) => {
       setSelectedMemberToMove({ employee: member, sourceTeam: team });
       setManualTargetTeamId(null);
       setManualMoveReason('');
       setManualMoveModalOpen(true);
+      setWorkload(null);
+
+      try {
+        setLoadingWorkload(true);
+        const wl = await fetchEmployeeWorkload(member.employeeId);
+        setWorkload(wl);
+      } catch (err) {
+        console.error('Failed to load employee workload', err);
+      } finally {
+        setLoadingWorkload(false);
+      }
     },
     [],
   );
@@ -1132,13 +1163,12 @@ export const OrganizationChartPageContent: React.FC = () => {
     });
   }, [chartData]);
 
-  // Candidates for manual move (same department, excluding source team)
+  // Candidates for manual move (all valid teams in SALES, DEV, SEO except current team)
   const eligibleManualTargetTeams = useMemo(() => {
     if (!selectedMemberToMove || !chartData?.teams) return [];
     return chartData.teams.filter(
       (t) =>
-        t.department.toUpperCase() ===
-          selectedMemberToMove.sourceTeam.department.toUpperCase() &&
+        ['SALES', 'DEV', 'SEO'].includes((t.department || '').toUpperCase()) &&
         String(t.id) !== String(selectedMemberToMove.sourceTeam.id),
     );
   }, [selectedMemberToMove, chartData]);
@@ -1769,6 +1799,7 @@ export const OrganizationChartPageContent: React.FC = () => {
           </div>
         }
         open={confirmMoveModalOpen}
+        destroyOnHidden
         onCancel={() => {
           setConfirmMoveModalOpen(false);
           setPendingMoveData(null);
@@ -1782,15 +1813,79 @@ export const OrganizationChartPageContent: React.FC = () => {
       >
         {pendingMoveData && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
-            {/* Cross-Department Warning if applicable */}
+            {/* Cross Department Alert */}
             {pendingMoveData.sourceTeam.department.toUpperCase() !==
               pendingMoveData.targetTeam.department.toUpperCase() && (
+              <div
+                style={{
+                  background: '#FEF3C7',
+                  border: '1px solid #F59E0B',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#92400E', fontSize: 13 }}>
+                  ⚠️ Điều chuyển liên phòng ban: [{pendingMoveData.sourceTeam.department}] ➔ [
+                  {pendingMoveData.targetTeam.department}]
+                </div>
+                <div style={{ fontSize: 12, color: '#78350F' }}>
+                  Vai trò mới sau chuyển:{' '}
+                  <Tag color="green">
+                    {pendingMoveData.targetTeam.department.toUpperCase() === 'SALES'
+                      ? 'Chuyên Viên Kinh Doanh (SALE)'
+                      : pendingMoveData.targetTeam.department.toUpperCase() === 'DEV'
+                        ? 'Lập Trình Viên / Kỹ Thuật (DEV)'
+                        : 'Chuyên Viên SEO / Content (SEO)'}
+                  </Tag>
+                </div>
+                <div style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>
+                  Quyền truy cập và menu hệ thống của nhân viên sẽ tự động chuyển sang bộ phận mới. Toàn bộ lịch sử hoạt động cũ được bảo toàn.
+                </div>
+              </div>
+            )}
+
+            {/* Workload Warning Alert if active work exists */}
+            {workload?.hasActiveWorkload && (
               <Alert
                 type="warning"
                 showIcon
-                icon={<WarningOutlined />}
-                message="Lưu ý: Chuyển nhân sự liên phòng ban"
-                description={`Bạn đang chuyển nhân viên từ phòng ban [${pendingMoveData.sourceTeam.department}] sang [${pendingMoveData.targetTeam.department}]. Hệ thống sẽ áp dụng quy tắc kiểm toán liên phòng ban.`}
+                message="Cảnh báo: Nhân viên đang có công việc dở dang tại phòng ban cũ"
+                description={
+                  <div style={{ fontSize: 12 }}>
+                    {workload.activeProjectsCount > 0 && (
+                      <div>
+                        • Đang tham gia <b>{workload.activeProjectsCount}</b> dự án (
+                        {workload.activeProjects.map((p) => p.name).join(', ')})
+                      </div>
+                    )}
+                    {workload.activeTasksCount > 0 && (
+                      <div>
+                        • Đang phụ trách <b>{workload.activeTasksCount}</b> nhiệm vụ chưa hoàn thành
+                      </div>
+                    )}
+                    {workload.activeDealsCount > 0 && (
+                      <div>
+                        • Đang phụ trách <b>{workload.activeDealsCount}</b> hợp đồng/giao dịch chưa đóng
+                      </div>
+                    )}
+                    <div style={{ marginTop: 4, fontStyle: 'italic' }}>
+                      Lịch sử phân công cũ vẫn được giữ nguyên. Sau khi chuyển, nhân viên sẽ tuân theo phân quyền mới của phòng ban đích.
+                    </div>
+                  </div>
+                }
+              />
+            )}
+
+            {/* Team Leader Demotion Notice if employee is currently a leader */}
+            {pendingMoveData.employee.isLeader && (
+              <Alert
+                type="info"
+                showIcon
+                message="Nhân viên hiện là Trưởng nhóm"
+                description={`Khi chuyển sang nhóm mới [${pendingMoveData.targetTeam.name}], nhân viên sẽ đảm nhận vai trò Thành viên thường. Nhóm cũ [${pendingMoveData.sourceTeam.name}] sẽ tạm thời khuyết Trưởng nhóm.`}
               />
             )}
 
@@ -1868,8 +1963,7 @@ export const OrganizationChartPageContent: React.FC = () => {
               }}
             >
               <InfoCircleOutlined style={{ marginRight: 6, color: '#10B981' }} />
-              Thao tác này sẽ thực hiện <b>Database Transaction</b>: đóng phân công nhóm cũ và mở
-              phân công nhóm mới trong cùng phòng ban, lưu vết Audit Log.
+              Thao tác này thực hiện <b>Database Transaction</b>: đóng phân công nhóm cũ và chức vụ cũ tại thời điểm hiện tại, tạo phân công nhóm mới, cập nhật vai trò hệ thống và lưu vết Audit Log.
             </div>
 
             {/* Reason Input */}
@@ -1893,15 +1987,17 @@ export const OrganizationChartPageContent: React.FC = () => {
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <SwapOutlined style={{ color: '#0C6B37' }} />
-            <span>Chuyển Team: {selectedMemberToMove?.employee.fullName}</span>
+            <span>Chuyển Bộ Phận / Team: {selectedMemberToMove?.employee.fullName}</span>
           </div>
         }
         open={manualMoveModalOpen}
+        destroyOnHidden
         onCancel={() => {
           setManualMoveModalOpen(false);
           setSelectedMemberToMove(null);
           setManualTargetTeamId(null);
           setManualMoveReason('');
+          setWorkload(null);
         }}
         onOk={handleConfirmManualMove}
         confirmLoading={moveMutation.isPending}
@@ -1930,33 +2026,96 @@ export const OrganizationChartPageContent: React.FC = () => {
                   {selectedMemberToMove.employee.fullName}
                 </div>
                 <div style={{ fontSize: 12, color: '#66736B' }}>
-                  Mã: <Tag color="blue">{selectedMemberToMove.employee.employeeCode}</Tag> | Nhóm
-                  hiện tại: <b>{selectedMemberToMove.sourceTeam.name}</b> (
-                  {selectedMemberToMove.sourceTeam.department})
+                  Mã: <Tag color="blue">{selectedMemberToMove.employee.employeeCode}</Tag> | Nhóm hiện tại: <b>{selectedMemberToMove.sourceTeam.name}</b> (
+                  <Tag color="purple">{selectedMemberToMove.sourceTeam.department}</Tag>)
                 </div>
               </div>
             </div>
 
+            {/* Workload Warning Alert if active work exists */}
+            {workload?.hasActiveWorkload && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Cảnh báo khối lượng công việc đang phụ trách"
+                description={
+                  <div style={{ fontSize: 12 }}>
+                    {workload.activeProjectsCount > 0 && (
+                      <div>• Đang tham gia <b>{workload.activeProjectsCount}</b> dự án</div>
+                    )}
+                    {workload.activeTasksCount > 0 && (
+                      <div>• Đang phụ trách <b>{workload.activeTasksCount}</b> nhiệm vụ dở dang</div>
+                    )}
+                    {workload.activeDealsCount > 0 && (
+                      <div>• Đang phụ trách <b>{workload.activeDealsCount}</b> deals dở dang</div>
+                    )}
+                  </div>
+                }
+              />
+            )}
+
+            {/* Team Leader Notice */}
+            {selectedMemberToMove.employee.isLeader && (
+              <Alert
+                type="info"
+                showIcon
+                message="Nhân viên hiện là Trưởng nhóm"
+                description="Khi chuyển sang nhóm mới, nhân viên trở thành thành viên thường. Nhóm cũ sẽ tạm thời khuyết Trưởng nhóm."
+              />
+            )}
+
             <div>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                Chọn Team tiếp nhận (Cùng phòng ban {selectedMemberToMove.sourceTeam.department}):
+                Chọn Team tiếp nhận (Tất cả phòng ban):
               </Text>
               <Select
-                placeholder="Chọn Team đích tiếp nhận..."
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                }
+                placeholder="Tìm và chọn Team đích tiếp nhận..."
                 style={{ width: '100%' }}
                 value={manualTargetTeamId}
                 onChange={setManualTargetTeamId}
                 options={eligibleManualTargetTeams.map((t) => ({
                   value: t.id,
-                  label: `${t.name} (Trưởng nhóm: ${t.leader ? t.leader.fullName : 'Chưa có'} | ${t.members.length} thành viên)`,
+                  label: `[${t.department}] ${t.name} (Trưởng nhóm: ${t.leader ? t.leader.fullName : 'Chưa có'} | ${t.members.length} TV)`,
                 }))}
               />
               {eligibleManualTargetTeams.length === 0 && (
                 <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                  Hiện không có Team khác trong cùng phòng ban để chuyển.
+                  Hiện không có Team khác để chuyển.
                 </Text>
               )}
             </div>
+
+            {manualTargetTeamId && (() => {
+              const tgt = chartData?.teams?.find((t) => String(t.id) === String(manualTargetTeamId));
+              if (!tgt) return null;
+              const isCross =
+                (selectedMemberToMove.sourceTeam.department || '').toUpperCase() !==
+                (tgt.department || '').toUpperCase();
+              return (
+                <div style={{ padding: '8px 12px', background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }}>
+                  <div>Đích đến: <b>{tgt.name}</b> (<Tag color="green">{tgt.department}</Tag>)</div>
+                  {isCross ? (
+                    <div style={{ marginTop: 4, color: '#B45309' }}>
+                      ⚡ Chuyển liên phòng ban: Vai trò mới sẽ là <b>{
+                        tgt.department.toUpperCase() === 'SALES'
+                          ? 'Chuyên Viên Kinh Doanh (SALE)'
+                          : tgt.department.toUpperCase() === 'DEV'
+                            ? 'Lập Trình Viên (DEV)'
+                            : 'Chuyên Viên SEO (SEO)'
+                      }</b>. Phiên đăng nhập cũ sẽ được làm mới.
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 4, color: '#047857' }}>
+                      Chuyển nội bộ phòng ban {tgt.department}: Giữ nguyên chức danh và vai trò hiện tại.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div>
               <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
@@ -2069,7 +2228,7 @@ export const OrganizationChartPageContent: React.FC = () => {
               style={{ backgroundColor: '#0C6B37', fontWeight: 600 }}
               block
             >
-              Chuyển Sang Team Khác
+              Chuyển Bộ Phận / Team Khác
             </Button>
           </div>
         )}

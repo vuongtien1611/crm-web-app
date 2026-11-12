@@ -7,11 +7,24 @@ import {
 } from '@nestjs/common';
 import { KyselyService } from '../../database/kysely.service';
 import { sql } from 'kysely';
-import { CreateTeamDto } from './dto/create-team.dto';
+import { CreateTeamDto, TeamDepartment } from './dto/create-team.dto';
 import { AssignMemberDto } from './dto/assign-member.dto';
 import { MoveMemberDto } from './dto/move-member.dto';
 import { ChangeLeaderDto } from './dto/change-leader.dto';
 import { JwtPayload } from '../auth/guards/jwt-auth.guard';
+
+export interface TeamRecentProjectItem {
+  id: string | number;
+  project_name: string;
+  status: string;
+  materialized_progress_percent: number | string;
+  created_at: Date | string;
+  order_code: string;
+  company_name: string;
+  service_name: string;
+  primaryAssignees: string[];
+  supportAssignees: string[];
+}
 
 @Injectable()
 export class TeamsService {
@@ -362,28 +375,90 @@ export class TeamsService {
   }
 
   // -------------------------------------------------------------
-  // CREATE TEAM
+  // GENERATE NEXT TEAM CODE
   // -------------------------------------------------------------
-  async createTeam(dto: CreateTeamDto, actorEmployeeId: string | number) {
-    const db = this.kysely.db;
+  async generateNextTeamCode(department: TeamDepartment, trx?: any): Promise<string> {
+    const executor = trx || this.kysely.db;
+    const prefix = `${department}_`;
+    const regexPattern = `^${prefix}[0-9]+$`;
+    const substringPattern = `^${prefix}([0-9]+)$`;
 
-    // Check duplicate code
-    const existing = await db
+    const row = await executor
       .selectFrom('teams')
-      .select('id')
-      .where('code', '=', dto.code.trim())
+      .select(
+        sql<number>`COALESCE(MAX(CAST(SUBSTRING(code FROM ${substringPattern}) AS INTEGER)), 0)`.as('max_seq'),
+      )
+      .where(sql`code ~ ${regexPattern}` as any)
       .executeTakeFirst();
 
-    if (existing) {
-      throw new ConflictException(`Mã nhóm làm việc '${dto.code}' đã tồn tại`);
+    let nextSeq = Number(row?.max_seq || 0) + 1;
+    let candidateCode = `${prefix}${String(nextSeq).padStart(2, '0')}`;
+
+    // Safety fallback: ensure candidate code is unique
+    while (true) {
+      const existing = await executor
+        .selectFrom('teams')
+        .select('id')
+        .where('code', '=', candidateCode)
+        .executeTakeFirst();
+      if (!existing) {
+        break;
+      }
+      nextSeq++;
+      candidateCode = `${prefix}${String(nextSeq).padStart(2, '0')}`;
     }
 
+    return candidateCode;
+  }
+
+  // -------------------------------------------------------------
+  // CREATE TEAM
+  // -------------------------------------------------------------
+  async createTeam(
+    dto: CreateTeamDto,
+    actorEmployeeId: string | number,
+    options?: { forceAutoCode?: boolean },
+  ) {
+    const db = this.kysely.db;
+    const shouldAutoGenerate = options?.forceAutoCode || !dto.code || !dto.code.trim();
+
     return await db.transaction().execute(async (trx) => {
+      let finalCode = '';
+
+      if (shouldAutoGenerate) {
+        // Concurrency advisory lock per department: serializes concurrent code generation
+        await sql`SELECT pg_advisory_xact_lock(hashtext('teams_code_' || ${dto.department})::bigint)`.execute(trx);
+        finalCode = await this.generateNextTeamCode(dto.department, trx);
+      } else {
+        finalCode = dto.code!.trim().toUpperCase();
+        // Check duplicate code
+        const existing = await trx
+          .selectFrom('teams')
+          .select('id')
+          .where('code', '=', finalCode)
+          .executeTakeFirst();
+
+        if (existing) {
+          throw new ConflictException(`Mã nhóm làm việc '${finalCode}' đã tồn tại`);
+        }
+      }
+
+      // Final uniqueness validation
+      const existingConflict = await trx
+        .selectFrom('teams')
+        .select('id')
+        .where('code', '=', finalCode)
+        .executeTakeFirst();
+
+      if (existingConflict) {
+        throw new ConflictException(`Mã nhóm làm việc '${finalCode}' đã tồn tại`);
+      }
+
       const [team] = await trx
         .insertInto('teams')
         .values({
           name: dto.name.trim(),
-          code: dto.code.trim().toUpperCase(),
+          code: finalCode,
           department: dto.department,
           description: dto.description ? dto.description.trim() : null,
         })
@@ -1270,7 +1345,7 @@ export class TeamsService {
     });
 
     // 7. Recent Projects
-    let recentProjects: any[] = [];
+    let recentProjects: TeamRecentProjectItem[] = [];
     if (teamProjectIds.length > 0) {
       const rawRecent = await db
         .selectFrom('projects as p')
@@ -1590,7 +1665,7 @@ export class TeamsService {
     });
 
     // 7. Recent Projects
-    let recentProjects: any[] = [];
+    let recentProjects: TeamRecentProjectItem[] = [];
     if (teamProjectIds.length > 0) {
       const rawRecent = await db
         .selectFrom('projects as p')

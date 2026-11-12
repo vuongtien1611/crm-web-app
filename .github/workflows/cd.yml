@@ -39,7 +39,7 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@v4
         with:
-          version: 8.15.1
+          version: 9.15.4
           run_install: false
 
       - name: Setup Node.js 20
@@ -193,7 +193,7 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@v4
         with:
-          version: 8.15.1
+          version: 9.15.4
           run_install: false
 
       - name: Setup Node.js 20

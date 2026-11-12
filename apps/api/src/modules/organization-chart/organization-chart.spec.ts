@@ -1,21 +1,34 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../app.module';
 import { OrganizationChartService } from './organization-chart.service';
+import { DailyReportsService } from '../daily-reports/daily-reports.service';
 import { KyselyService } from '../../database/kysely.service';
+import { RedisService } from '../../redis/redis.service';
+import { SessionService } from '../auth/services/session.service';
 import { BossOnlyGuard } from '../rbac/guards/boss-only.guard';
-import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ForbiddenException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import * as jwt from 'jsonwebtoken';
 import { sql } from 'kysely';
 
 async function runOrgChartIntegrationTests() {
   console.log('====================================================');
-  console.log('STARTING ORGANIZATION CHART INTEGRATION TESTS');
+  console.log('STARTING CROSS-DEPARTMENT TRANSFER INTEGRATION TESTS');
   console.log('====================================================');
 
   const app = await NestFactory.createApplicationContext(AppModule);
   const orgChartService = app.get(OrganizationChartService);
+  const dailyReportsService = app.get(DailyReportsService);
   const kyselyService = app.get(KyselyService);
+  const redisService = app.get(RedisService);
+  const sessionService = app.get(SessionService);
+  const configService = app.get(ConfigService);
+  const reflector = app.get(Reflector);
   const db = kyselyService.db;
   const guard = new BossOnlyGuard();
+  const jwtAuthGuard = new JwtAuthGuard(reflector, configService, redisService);
 
   let passCount = 0;
   let failCount = 0;
@@ -44,6 +57,7 @@ async function runOrgChartIntegrationTests() {
       ['SEO'],
       ['SALES_TEAM_LEADER'],
       ['DEV_TEAM_LEADER'],
+      ['SEO_TEAM_LEADER'],
       ['ACCOUNTANT'],
     ];
 
@@ -81,78 +95,255 @@ async function runOrgChartIntegrationTests() {
     assert(bossPassed === true, 'TEST 1.1: BOSS role passes BossOnlyGuard with 200 OK');
 
     // -------------------------------------------------------------
-    // TEST 2: BOSS xem toàn bộ cây Canonical
+    // TEST 2: Canonical Tree Data
     // -------------------------------------------------------------
     console.log('\n--- 2. Organization Tree Data Retrieval ---');
     const chartData = await orgChartService.getOrganizationChart();
     assert(chartData !== null && typeof chartData === 'object', 'TEST 2.1: Org chart data returned');
     assert(chartData.boss !== null, 'TEST 2.2: BOSS node exists at the top');
     assert(Array.isArray(chartData.teams), 'TEST 2.3: Teams list returned');
-    assert(Array.isArray(chartData.externalStaff), 'TEST 2.4: External staff list returned (ADMIN, ACCOUNTANT, etc.)');
-
-    console.log(`  + Boss: ${chartData.boss?.fullName} (${chartData.boss?.positionCode})`);
-    console.log(`  + Canonical Teams count: ${chartData.teams.length}`);
-    console.log(`  + External Staff count: ${chartData.externalStaff.length}`);
 
     // -------------------------------------------------------------
-    // SETUP TEST FIXTURES: 2 SALES Teams, 1 DEV Team, 1 Member, 1 Leader, 1 BOSS
+    // SETUP TEST FIXTURES: DYNAMIC LOOKUP (NO HARDCODED IDS)
     // -------------------------------------------------------------
-    console.log('\n--- Setting up test fixtures for move member & validations ---');
+    console.log('\n--- 3. Setting up dynamic test fixtures ---');
+    const posSale = await db.selectFrom('positions').selectAll().where('code', '=', 'SALE').executeTakeFirstOrThrow();
+    const posDev = await db.selectFrom('positions').selectAll().where('code', '=', 'DEV').executeTakeFirstOrThrow();
+    const posSeo = await db.selectFrom('positions').selectAll().where('code', '=', 'SEO').executeTakeFirstOrThrow();
+    const posSalesLeader = await db.selectFrom('positions').selectAll().where('code', '=', 'SALES_TEAM_LEADER').executeTakeFirstOrThrow();
+    const posDevLeader = await db.selectFrom('positions').selectAll().where('code', '=', 'DEV_TEAM_LEADER').executeTakeFirstOrThrow();
+    const posBoss = await db.selectFrom('positions').selectAll().where('code', '=', 'BOSS').executeTakeFirstOrThrow();
 
-    // Create 2 test sales teams
-    const teamSaleA = await db
-      .insertInto('teams')
-      .values({
-        code: `TST-SAL-A-${runId}`,
-        name: `Test Sales Alpha ${runId}`,
-        department: 'SALES' as any,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    const roleSale = await db.selectFrom('roles').selectAll().where('code', '=', 'SALE').executeTakeFirstOrThrow();
+    const roleDev = await db.selectFrom('roles').selectAll().where('code', '=', 'DEV').executeTakeFirstOrThrow();
+    const roleSeo = await db.selectFrom('roles').selectAll().where('code', '=', 'SEO').executeTakeFirstOrThrow();
 
-    const teamSaleB = await db
+    // Create 1 SALES team, 1 DEV team, 1 SEO team, 1 OPERATION team
+    const teamSale = await db
       .insertInto('teams')
-      .values({
-        code: `TST-SAL-B-${runId}`,
-        name: `Test Sales Beta ${runId}`,
-        department: 'SALES' as any,
-      })
+      .values({ code: `TST-SAL-${runId}`, name: `Test Sales Team ${runId}`, department: 'SALES' as any })
       .returningAll()
       .executeTakeFirstOrThrow();
 
     const teamDev = await db
       .insertInto('teams')
+      .values({ code: `TST-DEV-${runId}`, name: `Test Dev Team ${runId}`, department: 'DEV' as any })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const teamSeo = await db
+      .insertInto('teams')
+      .values({ code: `TST-SEO-${runId}`, name: `Test SEO Team ${runId}`, department: 'SEO' as any })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const teamOps = await db
+      .insertInto('teams')
+      .values({ code: `TST-OPS-${runId}`, name: `Test Ops Team ${runId}`, department: 'OPERATION' as any })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Create Users and Employees
+    const userCandidate = await db
+      .insertInto('users')
       .values({
-        code: `TST-DEV-${runId}`,
-        name: `Test Dev Team ${runId}`,
-        department: 'DEV' as any,
+        username: `cand_${runId}`,
+        password_hash: 'hash_test',
+        email: `cand_${runId}@crm.local`,
+        status: 'ACTIVE',
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // Get positions
-    let posSale = await db.selectFrom('positions').select('id').where('code', '=', 'SALE').executeTakeFirst();
-    if (!posSale) {
-      posSale = await db.insertInto('positions').values({ code: 'SALE', name: 'Nhân viên kinh doanh' }).returning('id').executeTakeFirstOrThrow();
-    }
-    let posSalesLeader = await db.selectFrom('positions').select('id').where('code', '=', 'SALES_TEAM_LEADER').executeTakeFirst();
-    if (!posSalesLeader) {
-      posSalesLeader = await db.insertInto('positions').values({ code: 'SALES_TEAM_LEADER', name: 'Trưởng nhóm kinh doanh' }).returning('id').executeTakeFirstOrThrow();
-    }
-    let posBoss = await db.selectFrom('positions').select('id').where('code', '=', 'BOSS').executeTakeFirst();
-    if (!posBoss) {
-      posBoss = await db.insertInto('positions').values({ code: 'BOSS', name: 'Giám Đốc' }).returning('id').executeTakeFirstOrThrow();
-    }
-
-    // Create test employees
-    const empMember = await db
+    const empCandidate = await db
       .insertInto('employees')
       .values({
-        employee_code: `EMP-MEM-${runId}`,
-        full_name: `Test Member ${runId}`,
-        position_id: posSale.id,
+        employee_code: `EMP-CAND-${runId}`,
+        full_name: `Candidate Employee ${runId}`,
+        position_id: posDev.id,
+        user_id: userCandidate.id,
         status: 'ACTIVE',
       })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Assign initial role: DEV
+    await db.insertInto('user_roles').values({ user_id: userCandidate.id, role_id: roleDev.id }).execute();
+
+    // Assign initial membership: DEV Team
+    const initialMembership = await db
+      .insertInto('team_memberships')
+      .values({
+        team_id: teamDev.id,
+        employee_id: empCandidate.id,
+        is_leader: false,
+        effective_range: sql`tstzrange(NOW() - interval '5 days', NULL, '[)')` as any,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Initial position history: DEV
+    await db
+      .insertInto('employee_position_history')
+      .values({
+        employee_id: empCandidate.id,
+        position_id: posDev.id,
+        effective_range: sql`tstzrange(NOW() - interval '5 days', NULL, '[)')` as any,
+        note: 'Ban đầu gia nhập DEV',
+      })
+      .execute();
+
+    // Create Boss Employee for actor
+    const empBoss = await db
+      .insertInto('employees')
+      .values({
+        employee_code: `EMP-BOSS-${runId}`,
+        full_name: `Boss Actor ${runId}`,
+        position_id: posBoss.id,
+        status: 'ACTIVE',
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    assert(Boolean(empCandidate.id && teamSale.id && teamDev.id && teamSeo.id), 'TEST 3: Dynamic fixtures created successfully');
+
+    // -------------------------------------------------------------
+    // TEST 4: PRE-CHECK WORKLOAD API
+    // -------------------------------------------------------------
+    console.log('\n--- 4. Pre-Transfer Workload Inspection ---');
+    const workload = await orgChartService.getEmployeeWorkload(empCandidate.id);
+    assert(workload.employeeId === String(empCandidate.id), 'TEST 4.1: getEmployeeWorkload returned employee ID');
+    assert(workload.hasActiveWorkload === false, 'TEST 4.2: Initially has no active workload');
+
+    // -------------------------------------------------------------
+    // TEST 5: ALL 6 CROSS-DEPARTMENT PERMUTATIONS
+    // -------------------------------------------------------------
+    console.log('\n--- 5. Testing All 6 Cross-Department Transfer Permutations ---');
+
+    // CASE 1: DEV -> SALE
+    console.log('  -> Executing Transfer 1: DEV -> SALE');
+    const res1 = await orgChartService.moveMember(
+      { employeeId: String(empCandidate.id), targetTeamId: String(teamSale.id), reason: 'Chuyển sang kinh doanh' },
+      String(empBoss.id),
+    );
+    assert(res1.isCrossDepartment === true, 'TEST 5.1a: DEV -> SALE marked isCrossDepartment = true');
+
+    const empAfter1 = await db.selectFrom('employees').select('position_id').where('id', '=', empCandidate.id).executeTakeFirstOrThrow();
+    assert(String(empAfter1.position_id) === String(posSale.id), 'TEST 5.1b: Position updated to SALE (dynamic lookup)');
+
+    const rolesAfter1 = await db.selectFrom('user_roles').innerJoin('roles', 'roles.id', 'user_roles.role_id').select('roles.code').where('user_roles.user_id', '=', userCandidate.id).execute();
+    assert(rolesAfter1.some((r) => r.code === 'SALE') && !rolesAfter1.some((r) => r.code === 'DEV'), 'TEST 5.1c: DEV role revoked, SALE role granted');
+
+    const activeMems1 = await db.selectFrom('team_memberships').select(sql<string>`count(id)`.as('cnt')).where('employee_id', '=', empCandidate.id).where(sql`effective_range @> NOW()` as any).executeTakeFirstOrThrow();
+    assert(Number(activeMems1.cnt) === 1, 'TEST 5.1d: Exactly one active membership, no GiST temporal overlap');
+
+    // CASE 2: SALE -> DEV
+    console.log('  -> Executing Transfer 2: SALE -> DEV');
+    const res2 = await orgChartService.moveMember(
+      { employeeId: String(empCandidate.id), targetTeamId: String(teamDev.id), reason: 'Chuyển về kỹ thuật' },
+      String(empBoss.id),
+    );
+    assert(res2.isCrossDepartment === true, 'TEST 5.2a: SALE -> DEV marked isCrossDepartment = true');
+    const empAfter2 = await db.selectFrom('employees').select('position_id').where('id', '=', empCandidate.id).executeTakeFirstOrThrow();
+    assert(String(empAfter2.position_id) === String(posDev.id), 'TEST 5.2b: Position updated to DEV');
+    const rolesAfter2 = await db.selectFrom('user_roles').innerJoin('roles', 'roles.id', 'user_roles.role_id').select('roles.code').where('user_roles.user_id', '=', userCandidate.id).execute();
+    assert(rolesAfter2.some((r) => r.code === 'DEV') && !rolesAfter2.some((r) => r.code === 'SALE'), 'TEST 5.2c: SALE role revoked, DEV role granted');
+
+    // CASE 3: DEV -> SEO
+    console.log('  -> Executing Transfer 3: DEV -> SEO');
+    const res3 = await orgChartService.moveMember(
+      { employeeId: String(empCandidate.id), targetTeamId: String(teamSeo.id), reason: 'Chuyển sang SEO Marketing' },
+      String(empBoss.id),
+    );
+    assert(res3.isCrossDepartment === true, 'TEST 5.3a: DEV -> SEO marked isCrossDepartment = true');
+    const empAfter3 = await db.selectFrom('employees').select('position_id').where('id', '=', empCandidate.id).executeTakeFirstOrThrow();
+    assert(String(empAfter3.position_id) === String(posSeo.id), 'TEST 5.3b: Position updated to SEO');
+    const rolesAfter3 = await db.selectFrom('user_roles').innerJoin('roles', 'roles.id', 'user_roles.role_id').select('roles.code').where('user_roles.user_id', '=', userCandidate.id).execute();
+    assert(rolesAfter3.some((r) => r.code === 'SEO') && !rolesAfter3.some((r) => r.code === 'DEV'), 'TEST 5.3c: DEV role revoked, SEO role granted');
+
+    // CASE 4: SEO -> DEV
+    console.log('  -> Executing Transfer 4: SEO -> DEV');
+    const res4 = await orgChartService.moveMember(
+      { employeeId: String(empCandidate.id), targetTeamId: String(teamDev.id), reason: 'SEO về lại DEV' },
+      String(empBoss.id),
+    );
+    assert(res4.isCrossDepartment === true, 'TEST 5.4a: SEO -> DEV marked isCrossDepartment = true');
+    const empAfter4 = await db.selectFrom('employees').select('position_id').where('id', '=', empCandidate.id).executeTakeFirstOrThrow();
+    assert(String(empAfter4.position_id) === String(posDev.id), 'TEST 5.4b: Position updated to DEV');
+
+    // CASE 5: DEV -> SALE -> SEO (SALE -> SEO)
+    console.log('  -> Executing Transfer 5: SALE -> SEO');
+    await orgChartService.moveMember({ employeeId: String(empCandidate.id), targetTeamId: String(teamSale.id) }, String(empBoss.id));
+    const res5 = await orgChartService.moveMember(
+      { employeeId: String(empCandidate.id), targetTeamId: String(teamSeo.id), reason: 'Sale chuyển sang SEO' },
+      String(empBoss.id),
+    );
+    assert(res5.isCrossDepartment === true, 'TEST 5.5a: SALE -> SEO marked isCrossDepartment = true');
+    const empAfter5 = await db.selectFrom('employees').select('position_id').where('id', '=', empCandidate.id).executeTakeFirstOrThrow();
+    assert(String(empAfter5.position_id) === String(posSeo.id), 'TEST 5.5b: Position updated to SEO');
+
+    // CASE 6: SEO -> SALE
+    console.log('  -> Executing Transfer 6: SEO -> SALE');
+    const res6 = await orgChartService.moveMember(
+      { employeeId: String(empCandidate.id), targetTeamId: String(teamSale.id), reason: 'SEO chuyển sang SALE' },
+      String(empBoss.id),
+    );
+    assert(res6.isCrossDepartment === true, 'TEST 5.6a: SEO -> SALE marked isCrossDepartment = true');
+    const empAfter6 = await db.selectFrom('employees').select('position_id').where('id', '=', empCandidate.id).executeTakeFirstOrThrow();
+    assert(String(empAfter6.position_id) === String(posSale.id), 'TEST 5.6b: Position updated to SALE');
+    const rolesAfter6 = await db.selectFrom('user_roles').innerJoin('roles', 'roles.id', 'user_roles.role_id').select('roles.code').where('user_roles.user_id', '=', userCandidate.id).execute();
+    assert(rolesAfter6.some((r) => r.code === 'SALE') && !rolesAfter6.some((r) => r.code === 'SEO'), 'TEST 5.6c: SEO role revoked, SALE role active');
+
+    // -------------------------------------------------------------
+    // TEST 6: SESSION INVALIDATION REALITY CHECK
+    // -------------------------------------------------------------
+    console.log('\n--- 6. Session Invalidation & Token Revocation Verification ---');
+    // Create a mock active session in Redis
+    const testSid = 'test_sid_' + runId;
+    const testRefreshToken = 'mock_refresh_token_' + runId;
+    await sessionService.createSession(String(userCandidate.id), testRefreshToken, testSid);
+
+    const accessSecret = configService.get<string>('jwt.accessSecret') || 'default_access_secret';
+    const validToken = jwt.sign(
+      { sub: String(userCandidate.id), sessionId: testSid, roles: ['SALE'] },
+      accessSecret,
+      { expiresIn: '15m' },
+    );
+
+    // Verify token works before revocation
+    const activeReqContext: any = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          headers: { authorization: `Bearer ${validToken}` },
+        }),
+      }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    };
+    const canActivateBefore = await jwtAuthGuard.canActivate(activeReqContext);
+    assert(canActivateBefore === true, 'TEST 6.1: Active session token passes JwtAuthGuard');
+
+    // Revoke all sessions (simulating post-transfer behavior)
+    await sessionService.revokeAllUserSessions(String(userCandidate.id));
+
+    // Request with old access token must now throw 401 Unauthorized
+    let revokedRejected = false;
+    try {
+      await jwtAuthGuard.canActivate(activeReqContext);
+    } catch (err: any) {
+      if (err instanceof UnauthorizedException && err.message.includes('Session expired or revoked')) {
+        revokedRejected = true;
+      }
+    }
+    assert(revokedRejected === true, 'TEST 6.2: Old token is immediately rejected with 401 Unauthorized after session revocation');
+
+    // -------------------------------------------------------------
+    // TEST 7: TEAM LEADER TRANSFER & DEMOTION TO REGULAR MEMBER
+    // -------------------------------------------------------------
+    console.log('\n--- 7. Team Leader Cross-Department Transfer ---');
+    const userLeader = await db
+      .insertInto('users')
+      .values({ username: `ldr_${runId}`, password_hash: 'hash_test', email: `ldr_${runId}@crm.local`, status: 'ACTIVE' })
       .returningAll()
       .executeTakeFirstOrThrow();
 
@@ -160,213 +351,276 @@ async function runOrgChartIntegrationTests() {
       .insertInto('employees')
       .values({
         employee_code: `EMP-LDR-${runId}`,
-        full_name: `Test Leader ${runId}`,
-        position_id: posSalesLeader.id,
+        full_name: `Leader Transfer ${runId}`,
+        position_id: posDevLeader.id,
+        user_id: userLeader.id,
         status: 'ACTIVE',
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    const empBoss = await db
-      .insertInto('employees')
-      .values({
-        employee_code: `EMP-BSS-${runId}`,
-        full_name: `Test Boss ${runId}`,
-        position_id: posBoss.id,
-        status: 'ACTIVE',
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    await db.insertInto('team_memberships').values({
+      team_id: teamDev.id,
+      employee_id: empLeader.id,
+      is_leader: true,
+      effective_range: sql`tstzrange(NOW() - interval '2 days', NULL, '[)')` as any,
+    }).execute();
 
-    // Assign initial memberships:
-    // empLeader -> Leader of Team Sale A
-    const leaderMembership = await db
-      .insertInto('team_memberships')
-      .values({
-        team_id: teamSaleA.id,
-        employee_id: empLeader.id,
-        is_leader: true,
-        effective_range: sql`tstzrange(NOW() - interval '10 days', NULL, '[)')` as any,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    // empMember -> Member of Team Sale A
-    const memberMembership = await db
-      .insertInto('team_memberships')
-      .values({
-        team_id: teamSaleA.id,
-        employee_id: empMember.id,
-        is_leader: false,
-        effective_range: sql`tstzrange(NOW() - interval '5 days', NULL, '[)')` as any,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    // -------------------------------------------------------------
-    // TEST 3: Move member Team A -> Team B PASS
-    // -------------------------------------------------------------
-    console.log('\n--- 3. Move member Team A -> Team B ---');
-    const moveRes = await orgChartService.moveMember(
-      {
-        employeeId: String(empMember.id),
-        targetTeamId: String(teamSaleB.id),
-        reason: 'Điều chuyển nội bộ cùng phòng ban',
-      },
+    // Transfer DEV Leader -> SALE
+    const resLeaderTransfer = await orgChartService.moveMember(
+      { employeeId: String(empLeader.id), targetTeamId: String(teamSale.id), reason: 'Leader chuyển phòng ban' },
       String(empBoss.id),
     );
+    assert(resLeaderTransfer.isCrossDepartment === true, 'TEST 7.1: Team Leader cross-dept transfer completed');
 
-    assert(moveRes !== null, 'TEST 3.1: moveMember response returned');
-    assert(String(moveRes.targetTeamId) === String(teamSaleB.id), 'TEST 3.2: targetTeamId matches Team B');
-
-    // -------------------------------------------------------------
-    // TEST 4: Membership cũ closed & TEST 5: Membership mới active
-    // -------------------------------------------------------------
-    console.log('\n--- 4 & 5. Temporal Membership Range Verification ---');
-    const oldMembership = await db
+    const newLeaderMembership = await db
       .selectFrom('team_memberships')
       .selectAll()
-      .where('id', '=', memberMembership.id)
+      .where('employee_id', '=', empLeader.id)
+      .where(sql`effective_range @> NOW()` as any)
+      .executeTakeFirstOrThrow();
+    assert(newLeaderMembership.is_leader === false, 'TEST 7.2: Transferred Leader becomes regular member (is_leader = false) in target team');
+
+    // Transfer Leader within SAME department: SEO Leader -> SEO Team 2
+    const teamSeo2 = await db
+      .insertInto('teams')
+      .values({ code: `T-SEO2-${runId}`, name: `SEO Team 2 ${runId}`, department: 'SEO' })
+      .returningAll()
       .executeTakeFirstOrThrow();
 
-    const newMembership = await db
+    const empSeoLeader = await db
+      .insertInto('employees')
+      .values({
+        employee_code: `EMP-SEOL-${runId}`,
+        full_name: `SEO Leader ${runId}`,
+        position_id: posSeo.id,
+        status: 'ACTIVE',
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await db.insertInto('team_memberships').values({
+      team_id: teamSeo.id,
+      employee_id: empSeoLeader.id,
+      is_leader: true,
+      effective_range: sql`tstzrange(NOW() - interval '3 days', NULL, '[)')` as any,
+    }).execute();
+
+    const resSameDeptLeaderTransfer = await orgChartService.moveMember(
+      { employeeId: String(empSeoLeader.id), targetTeamId: String(teamSeo2.id), reason: 'Chuyển sang làm nhân viên team mới' },
+      String(empBoss.id),
+    );
+    assert(resSameDeptLeaderTransfer.isCrossDepartment === false, 'TEST 7.3: Same-dept leader transfer isCrossDepartment = false');
+    assert(resSameDeptLeaderTransfer.wasLeader === true, 'TEST 7.4: wasLeader flagged true');
+
+    const seoLeaderNewMembership = await db
       .selectFrom('team_memberships')
       .selectAll()
-      .where('id', '=', moveRes.newMembershipId as any)
+      .where('employee_id', '=', empSeoLeader.id)
+      .where(sql`effective_range @> NOW()` as any)
       .executeTakeFirstOrThrow();
-
-    // Check old membership upper bound is closed
-    const oldClosed = await db
-      .selectFrom('team_memberships')
-      .select(sql<boolean>`upper(effective_range) IS NOT NULL AND upper(effective_range) <= NOW()`.as('is_closed'))
-      .where('id', '=', oldMembership.id)
-      .executeTakeFirstOrThrow();
-
-    assert(oldClosed.is_closed === true, 'TEST 4: Old membership range was closed at NOW()');
-
-    // Check new membership is active
-    const newActive = await db
-      .selectFrom('team_memberships')
-      .select(sql<boolean>`effective_range @> NOW() AND upper(effective_range) IS NULL`.as('is_active'))
-      .where('id', '=', newMembership.id)
-      .executeTakeFirstOrThrow();
-
-    assert(newActive.is_active === true, 'TEST 5: New membership range is currently active [NOW(), NULL)');
+    assert(seoLeaderNewMembership.is_leader === false, 'TEST 7.5: Same-dept moved Leader becomes regular member (is_leader = false)');
 
     // -------------------------------------------------------------
-    // TEST 6: Không tạo 2 active team (duy nhất 1 active membership)
+    // TEST 8: DAILY REPORT HISTORICAL SCOPE TEST
     // -------------------------------------------------------------
-    console.log('\n--- 6. Single Active Primary Team Membership Enforcement ---');
-    const activeMembershipsCount = await db
+    console.log('\n--- 8. Daily Report Historical Scoping Test ---');
+    // Create dedicated teams for clean report test
+    const teamDevRep = await db
+      .insertInto('teams')
+      .values({ code: `T-DR-DEV-${runId}`, name: `Daily Report DEV ${runId}`, department: 'DEV' })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const teamSaleRep = await db
+      .insertInto('teams')
+      .values({ code: `T-DR-SAL-${runId}`, name: `Daily Report SALE ${runId}`, department: 'SALES' })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Dev Leader for teamDevRep
+    const leaderDevRep = await db
+      .insertInto('employees')
+      .values({ employee_code: `EMP-DR-DVL-${runId}`, full_name: `DR Dev Leader ${runId}`, position_id: posDevLeader.id, status: 'ACTIVE' })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await db.insertInto('team_memberships').values({
+      team_id: teamDevRep.id,
+      employee_id: leaderDevRep.id,
+      is_leader: true,
+      effective_range: sql`tstzrange(NOW() - interval '10 days', NULL, '[)')` as any,
+    }).execute();
+
+    // Sales Leader for teamSaleRep
+    const leaderSaleRep = await db
+      .insertInto('employees')
+      .values({ employee_code: `EMP-DR-SLL-${runId}`, full_name: `DR Sales Leader ${runId}`, position_id: posSalesLeader.id, status: 'ACTIVE' })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await db.insertInto('team_memberships').values({
+      team_id: teamSaleRep.id,
+      employee_id: leaderSaleRep.id,
+      is_leader: true,
+      effective_range: sql`tstzrange(NOW() - interval '10 days', NULL, '[)')` as any,
+    }).execute();
+
+    // Employee subject starting in teamDevRep
+    const empRepSubject = await db
+      .insertInto('employees')
+      .values({ employee_code: `EMP-DR-SUB-${runId}`, full_name: `DR Subject ${runId}`, position_id: posDev.id, status: 'ACTIVE' })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await db.insertInto('team_memberships').values({
+      team_id: teamDevRep.id,
+      employee_id: empRepSubject.id,
+      is_leader: false,
+      effective_range: sql`tstzrange(NOW() - interval '5 days', NULL, '[)')` as any,
+    }).execute();
+
+    await db.insertInto('employee_position_history').values({
+      employee_id: empRepSubject.id,
+      position_id: posDev.id,
+      effective_range: sql`tstzrange(NOW() - interval '5 days', NULL, '[)')` as any,
+    }).execute();
+
+    // 1. Report BEFORE transfer (submitted 2 days ago in DEV)
+    const reportBefore = await db
+      .insertInto('daily_reports')
+      .values({
+        employee_id: empRepSubject.id,
+        report_date: '2026-09-01' as any,
+        note: 'Report BEFORE transfer in DEV',
+        submitted_at: sql`NOW() - interval '2 days'` as any,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // 2. Perform cross-department transfer DEV -> SALE
+    const repTransfer = await orgChartService.moveMember(
+      { employeeId: String(empRepSubject.id), targetTeamId: String(teamSaleRep.id), reason: 'Chuyển sang SALE để test daily report' },
+      String(empBoss.id),
+    );
+    assert(repTransfer.isCrossDepartment === true, 'TEST 8.0: Transfer completed for DR subject');
+
+    const repNewMem = await db
       .selectFrom('team_memberships')
-      .select(sql<string>`count(id)`.as('count'))
-      .where('employee_id', '=', empMember.id)
+      .selectAll()
+      .where('employee_id', '=', empRepSubject.id)
       .where(sql`effective_range @> NOW()` as any)
       .executeTakeFirstOrThrow();
 
+    // 3. Report AT EXACT TRANSFER TIME (submitted at lower bound of new membership)
+    const reportExact = await db
+      .insertInto('daily_reports')
+      .values({
+        employee_id: empRepSubject.id,
+        report_date: '2026-09-02' as any,
+        note: 'Report AT EXACT TRANSFER TIME',
+        submitted_at: sql`lower(${repNewMem.effective_range}::tstzrange)` as any,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // 4. Report AFTER transfer (submitted in SALE)
+    const reportAfter = await db
+      .insertInto('daily_reports')
+      .values({
+        employee_id: empRepSubject.id,
+        report_date: '2026-09-03' as any,
+        note: 'Report AFTER transfer in SALE',
+        submitted_at: sql`NOW() + interval '5 minutes'` as any,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Query as Dev Leader (old team):
+    const devLeaderReports = await dailyReportsService.getDailyReports(
+      {},
+      String(leaderDevRep.id),
+      ['DEV_TEAM_LEADER'],
+    );
+    const devReportIds = devLeaderReports.map((r: any) => String(r.id));
+    assert(devReportIds.includes(String(reportBefore.id)), 'TEST 8.1: Dev Leader can see report submitted before transfer while in DEV');
+    assert(!devReportIds.includes(String(reportExact.id)), 'TEST 8.2: Dev Leader CANNOT see report at exact transfer moment (belongs to new team)');
+    assert(!devReportIds.includes(String(reportAfter.id)), 'TEST 8.3: Dev Leader CANNOT see report submitted after transfer to SALE');
+
+    // Query as Sales Leader (new team):
+    const salesLeaderReports = await dailyReportsService.getDailyReports(
+      {},
+      String(leaderSaleRep.id),
+      ['SALES_TEAM_LEADER'],
+    );
+    const salesReportIds = salesLeaderReports.map((r: any) => String(r.id));
+    assert(!salesReportIds.includes(String(reportBefore.id)), 'TEST 8.4: Sales Leader CANNOT see report submitted before transfer while in DEV');
+    assert(salesReportIds.includes(String(reportExact.id)), 'TEST 8.5: Sales Leader sees report submitted at exact transfer moment');
+    assert(salesReportIds.includes(String(reportAfter.id)), 'TEST 8.6: Sales Leader sees report submitted after transfer to SALE');
+
+    // Query as Employee own scope:
+    const ownReports = await dailyReportsService.getDailyReports(
+      { scope: 'own' },
+      String(empRepSubject.id),
+      ['SALE'],
+    );
+    const ownReportIds = ownReports.map((r: any) => String(r.id));
     assert(
-      Number(activeMembershipsCount.count) === 1,
-      'TEST 6: Employee has EXACTLY ONE active primary team membership at any time',
+      ownReportIds.includes(String(reportBefore.id)) &&
+      ownReportIds.includes(String(reportExact.id)) &&
+      ownReportIds.includes(String(reportAfter.id)),
+      'TEST 8.7: Employee sees ALL their reports across time (before, at transfer, after transfer)',
     );
 
     // -------------------------------------------------------------
-    // TEST 7: Cross-department move -> Rejected with CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED
+    // TEST 9: CONSTRAINTS & ROLLBACK INTEGRITY
     // -------------------------------------------------------------
-    console.log('\n--- 7. Cross-Department Move (BLOCKED: CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED) ---');
-    let crossDeptRejected = false;
-    try {
-      await orgChartService.moveMember(
-        {
-          employeeId: String(empMember.id),
-          targetTeamId: String(teamDev.id),
-          reason: 'Thử việc chuyển sang phòng kỹ thuật',
-        },
-        String(empBoss.id),
-      );
-    } catch (err: any) {
-      if (
-        err instanceof BadRequestException &&
-        err.message.includes('CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED')
-      ) {
-        crossDeptRejected = true;
-      }
-    }
-    assert(
-      crossDeptRejected,
-      'TEST 7: Cross-department move is strictly rejected with CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED',
-    );
-
-    // -------------------------------------------------------------
-    // TEST 8: Kéo BOSS -> Reject
-    // -------------------------------------------------------------
-    console.log('\n--- 8. Drag BOSS into a team -> Strictly Rejected ---');
+    console.log('\n--- 9. Safety Constraints & Transaction Rollback ---');
+    // Reject moving BOSS
     let bossMoveRejected = false;
     try {
-      await orgChartService.moveMember(
-        {
-          employeeId: String(empBoss.id),
-          targetTeamId: String(teamSaleA.id),
-        },
-        String(empBoss.id),
-      );
+      await orgChartService.moveMember({ employeeId: String(empBoss.id), targetTeamId: String(teamSale.id) }, String(empBoss.id));
     } catch (err: any) {
-      if (err instanceof BadRequestException && err.message.includes('Giám Đốc (BOSS)')) {
+      if (err instanceof BadRequestException && err.message.includes('BOSS')) {
         bossMoveRejected = true;
       }
     }
-    assert(bossMoveRejected, 'TEST 8: Moving BOSS into a team throws BadRequestException');
+    assert(bossMoveRejected, 'TEST 9.1: Moving BOSS into a team throws BadRequestException');
 
-    // -------------------------------------------------------------
-    // TEST 9: Kéo Team Leader như member -> Reject
-    // -------------------------------------------------------------
-    console.log('\n--- 9. Drag Team Leader as normal member -> Strictly Rejected ---');
-    let leaderMoveRejected = false;
+    // Reject moving into invalid department (e.g. OPERATION)
+    let opsMoveRejected = false;
     try {
-      await orgChartService.moveMember(
-        {
-          employeeId: String(empLeader.id),
-          targetTeamId: String(teamSaleB.id),
-        },
-        String(empBoss.id),
-      );
+      await orgChartService.moveMember({ employeeId: String(empCandidate.id), targetTeamId: String(teamOps.id) }, String(empBoss.id));
     } catch (err: any) {
-      if (err instanceof BadRequestException && err.message.includes('Trưởng nhóm')) {
-        leaderMoveRejected = true;
+      if (err instanceof BadRequestException && err.message.includes('OPERATION')) {
+        opsMoveRejected = true;
       }
     }
-    assert(leaderMoveRejected, 'TEST 9: Moving active Team Leader as regular member throws BadRequestException');
+    assert(opsMoveRejected, 'TEST 9.2: Moving into OPERATION department throws BadRequestException');
 
-    // -------------------------------------------------------------
-    // TEST 10: Change Team Leader action -> Blocked with TEAM_LEADER_ROLE_POLICY_NOT_DEFINED
-    // -------------------------------------------------------------
-    console.log('\n--- 10. Action Đổi trưởng Team (BLOCKED: TEAM_LEADER_ROLE_POLICY_NOT_DEFINED) ---');
-    let changeLeaderBlocked = false;
+    // Reject moving into same team
+    let sameTeamRejected = false;
     try {
-      await orgChartService.changeLeader(
-        {
-          teamId: String(teamSaleB.id),
-          newLeaderEmployeeId: String(empMember.id),
-        },
-        String(empBoss.id),
-      );
+      await orgChartService.moveMember({ employeeId: String(empCandidate.id), targetTeamId: String(teamSale.id) }, String(empBoss.id));
     } catch (err: any) {
-      if (
-        err instanceof BadRequestException &&
-        err.message.includes('TEAM_LEADER_ROLE_POLICY_NOT_DEFINED')
-      ) {
-        changeLeaderBlocked = true;
+      if (err instanceof BadRequestException && err.message.includes('đã thuộc nhóm')) {
+        sameTeamRejected = true;
       }
     }
-    assert(
-      changeLeaderBlocked,
-      'TEST 10: Change leader is blocked with TEAM_LEADER_ROLE_POLICY_NOT_DEFINED',
-    );
+    assert(sameTeamRejected, 'TEST 9.3: Moving into current team throws BadRequestException');
 
     // Cleanup fixtures
+    await db.deleteFrom('daily_reports').where('id', 'in', [reportBefore.id, reportExact.id, reportAfter.id]).execute();
     await db.deleteFrom('audit_logs').where('actor_employee_id', '=', empBoss.id).execute();
-    await db.deleteFrom('team_memberships').where('team_id', 'in', [teamSaleA.id, teamSaleB.id, teamDev.id]).execute();
-    await db.deleteFrom('teams').where('id', 'in', [teamSaleA.id, teamSaleB.id, teamDev.id]).execute();
-    await db.deleteFrom('employees').where('id', 'in', [empMember.id, empLeader.id, empBoss.id]).execute();
+    await db.deleteFrom('team_memberships').where('team_id', 'in', [teamSale.id, teamDev.id, teamSeo.id, teamOps.id, teamDevRep.id, teamSaleRep.id]).execute();
+    await db.deleteFrom('employee_position_history').where('employee_id', 'in', [empCandidate.id, empLeader.id, leaderDevRep.id, leaderSaleRep.id, empRepSubject.id]).execute();
+    await db.deleteFrom('user_roles').where('user_id', 'in', [userCandidate.id, userLeader.id]).execute();
+    await db.deleteFrom('employees').where('id', 'in', [empCandidate.id, empLeader.id, leaderDevRep.id, leaderSaleRep.id, empRepSubject.id, empBoss.id]).execute();
+    await db.deleteFrom('users').where('id', 'in', [userCandidate.id, userLeader.id]).execute();
+    await db.deleteFrom('teams').where('id', 'in', [teamSale.id, teamDev.id, teamSeo.id, teamOps.id, teamDevRep.id, teamSaleRep.id]).execute();
+
   } catch (err) {
     console.error('Unexpected error during integration tests:', err);
     failCount++;

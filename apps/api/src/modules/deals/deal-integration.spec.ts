@@ -32,9 +32,13 @@ async function runDealIntegrationTests() {
 
   try {
     // 0. Setup Test Fixtures
-    // Query position for test employees
-    const pos = await kysely.db.selectFrom('positions').select('id').executeTakeFirst();
-    if (!pos) throw new Error('No positions found in database');
+    // Query position for test employees (strictly SALE)
+    const pos = await kysely.db
+      .selectFrom('positions')
+      .select('id')
+      .where('code', '=', 'SALE')
+      .executeTakeFirst();
+    if (!pos) throw new Error('No SALE position found in database');
 
     const [sale1] = await kysely.db
       .insertInto('employees')

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
 import { CommissionPolicyMatcherService } from '../commissions/services/commission-policy-matcher.service';
-import { sql } from 'kysely';
+import { sql, RawBuilder } from 'kysely';
 import { QuerySubscriptionDto } from './dto/query-subscription.dto';
 
 export interface CreateSubscriptionDto {
@@ -26,6 +26,15 @@ export interface ReplaceAssigneeDto {
 }
 
 import { NotificationsService } from '../notifications/notifications.service';
+
+interface SubscriptionInstallmentRow {
+  id: string | number;
+  installment_number: number;
+  service_period_id: string | number | null;
+  due_date: string;
+  gross_amount_due: number | string;
+  status: string;
+}
 
 @Injectable()
 export class SubscriptionsService {
@@ -479,7 +488,7 @@ export class SubscriptionsService {
    * Evaluates recurring commissions for a ServicePeriod.
    * Condition: MUST be BOTH execution_status = 'ACCEPTED' AND payment_status = 'FULLY_PAID'.
    */
-  async evaluateRecurringCommissions(trx: any, periodId: string | number, paymentAllocationId?: string) {
+  async evaluateRecurringCommissions(trx: CrmTransaction, periodId: string | number, paymentAllocationId?: string) {
     const period = await trx
       .selectFrom('service_periods as sp')
       .innerJoin('subscriptions as s', 's.id', 'sp.subscription_id')
@@ -915,7 +924,7 @@ export class SubscriptionsService {
     if (scope.isGlobal) return baseQuery;
     if (scope.denyAll) return baseQuery.where(sql`1 = 0`);
 
-    const conditions: any[] = [];
+    const conditions: RawBuilder<any>[] = [];
 
     // Sales filter: oi.closing_sale_id IN (...)
     if (scope.saleIds && scope.saleIds.length > 0) {
@@ -1423,7 +1432,7 @@ export class SubscriptionsService {
 
     // Linked Payment Plan & Installments (Redacted for Tech Leader Data Minimization)
     let paymentPlan: any = null;
-    let installments: any[] = [];
+    let installments: SubscriptionInstallmentRow[] = [];
 
     if (!isTechOnlyViewer) {
       paymentPlan = await db

@@ -19,8 +19,10 @@ import { ConvertLeadToDealDto } from './dto/convert-lead-to-deal.dto';
 import { JwtAuthGuard, JwtPayload } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { TeamsService } from '../teams/teams.service';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('leads')
 export class LeadsController {
   constructor(
@@ -139,18 +141,37 @@ export class LeadsController {
 
   @Patch(':id/status')
   async updateStatus(
+    @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateLeadStatusDto,
   ) {
-    return this.leadsService.updateStatus(id, dto);
+    return this.leadsService.updateStatus(id, dto, user);
+  }
+
+  @Post(':id/restore-converted')
+  async restoreConverted(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ) {
+    return this.leadsService.restoreConverted(id, user);
   }
 
   @Post(':id/assign')
+  @RequirePermissions('LEAD_ASSIGN')
   async assignLead(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: AssignLeadDto,
   ) {
+    const roles: string[] = user.roles || [];
+    const isElevated = roles.includes('ADMIN') || roles.includes('BOSS') || roles.includes('SUPER_ADMIN');
+    const isSalesLeader = roles.includes('SALES_TEAM_LEADER');
+    const permissions: string[] = user.permissions || [];
+
+    if (!isElevated && !isSalesLeader && !permissions.includes('LEAD_ASSIGN')) {
+      throw new ForbiddenException('Nhân viên kinh doanh không có quyền phân công Lead');
+    }
+
     return this.leadsService.assignLead(id, dto, user.employeeId || undefined, user);
   }
 
@@ -168,7 +189,7 @@ export class LeadsController {
     @Param('id') id: string,
     @Body() dto: ConvertLeadToDealDto,
   ) {
-    return this.leadsService.convertToDeal(id, dto, user.employeeId || undefined);
+    return this.leadsService.convertToDeal(id, dto, user.employeeId || undefined, user);
   }
 
   // ── Private helper ──────────────────────────────────────────────────────

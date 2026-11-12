@@ -10,7 +10,10 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { CreateServiceDto } from './dto/create-service.dto';
 import { CreateOrderItemDto } from './dto/create-order-item.dto';
+import { UpdateOrderItemDto } from './dto/update-order-item.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { UpdateOrderItemRequirementsDto } from './dto/update-order-item-requirements.dto';
 import { RequestMoreInfoDto } from './dto/request-more-info.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
@@ -33,6 +36,21 @@ export class OrdersController {
   @Get('services')
   async getServices() {
     return await this.ordersService.getActiveServices();
+  }
+
+  @Post('services')
+  @RequirePermissions('ORDER_CREATE')
+  async createService(
+    @Body() dto: CreateServiceDto,
+    @CurrentUser() user?: any,
+  ) {
+    return await this.ordersService.createService(dto, user?.employeeId);
+  }
+
+  @Get('orders/sales-reps')
+  @RequirePermissions('ORDER_READ')
+  async getSalesReps() {
+    return await this.ordersService.getActiveSalesReps();
   }
 
   @Get('orders')
@@ -134,6 +152,7 @@ export class OrdersController {
   }
 
   @Post('orders/:id/submit')
+  @RequirePermissions('ORDER_SUBMIT')
   async submitOrder(@Param('id') id: string, @CurrentUser() user?: any) {
     return await this.ordersService.submitOrder(id, user?.employeeId);
   }
@@ -141,6 +160,10 @@ export class OrdersController {
   @Post('orders/:id/approve')
   @RequirePermissions('ORDER_APPROVE')
   async approveOrder(@Param('id') id: string, @CurrentUser() user?: any) {
+    const roles: string[] = user?.roles || [];
+    if (!roles.includes('BOSS') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Chỉ có Giám đốc (BOSS) mới có quyền phê duyệt đơn hàng');
+    }
     return await this.ordersService.approveOrder(id, user?.employeeId);
   }
 
@@ -151,21 +174,30 @@ export class OrdersController {
     @Body() dto: RequestMoreInfoDto,
     @CurrentUser() user?: any,
   ) {
+    const roles: string[] = user?.roles || [];
+    if (!roles.includes('BOSS') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Chỉ có Giám đốc (BOSS) mới có quyền yêu cầu bổ sung thông tin');
+    }
     return await this.ordersService.requestMoreInfo(id, dto, user?.employeeId);
   }
 
   @Post('orders/:id/resubmit')
+  @RequirePermissions('ORDER_SUBMIT')
   async resubmitOrder(@Param('id') id: string, @CurrentUser() user?: any) {
     return await this.ordersService.resubmitOrder(id, user?.employeeId);
   }
 
   @Post('orders/:id/reject')
-  @RequirePermissions('ORDER_APPROVE')
+  @RequirePermissions('ORDER_REJECT')
   async rejectOrder(
     @Param('id') id: string,
     @Body() dto: RejectOrderDto,
     @CurrentUser() user?: any,
   ) {
+    const roles: string[] = user?.roles || [];
+    if (!roles.includes('BOSS') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Chỉ có Giám đốc (BOSS) mới có quyền từ chối đơn hàng');
+    }
     return await this.ordersService.rejectOrder(id, dto, user?.employeeId);
   }
 
@@ -176,6 +208,15 @@ export class OrdersController {
     @CurrentUser() user?: any,
   ) {
     return await this.ordersService.cancelOrder(id, dto, user?.employeeId);
+  }
+
+  @Put('orders/:id')
+  async updateOrder(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderDto,
+    @CurrentUser() user?: any,
+  ) {
+    return await this.ordersService.updateOrder(id, dto, user?.employeeId);
   }
 
   // --------------------------------------------------
@@ -191,7 +232,26 @@ export class OrdersController {
     return await this.ordersService.addOrderItem(orderId, dto, user?.employeeId);
   }
 
+  @Put('order-items/:id')
+  async updateOrderItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderItemDto,
+    @CurrentUser() user?: any,
+  ) {
+    return await this.ordersService.updateOrderItem(id, dto, user?.employeeId);
+  }
+
+  @Put('orders/:orderId/items/:itemId')
+  async updateOrderItemNested(
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateOrderItemDto,
+    @CurrentUser() user?: any,
+  ) {
+    return await this.ordersService.updateOrderItem(itemId, dto, user?.employeeId);
+  }
+
   @Post('order-items/:id/submit')
+  @RequirePermissions('ORDER_SUBMIT')
   async submitOrderItem(@Param('id') id: string, @CurrentUser() user?: any) {
     return await this.ordersService.submitOrderItem(id, user?.employeeId);
   }
@@ -199,12 +259,20 @@ export class OrdersController {
   @Post('order-items/:id/approve')
   @RequirePermissions('ORDER_APPROVE')
   async approveOrderItem(@Param('id') id: string, @CurrentUser() user?: any) {
+    const roles: string[] = user?.roles || [];
+    if (!roles.includes('BOSS') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Chỉ có Giám đốc (BOSS) mới có quyền phê duyệt dịch vụ');
+    }
     return await this.ordersService.approveOrderItem(id, user?.employeeId);
   }
 
   @Post('order-items/:id/reject')
-  @RequirePermissions('ORDER_APPROVE')
+  @RequirePermissions('ORDER_REJECT')
   async rejectOrderItem(@Param('id') id: string, @CurrentUser() user?: any) {
+    const roles: string[] = user?.roles || [];
+    if (!roles.includes('BOSS') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Chỉ có Giám đốc (BOSS) mới có quyền từ chối dịch vụ');
+    }
     return await this.ordersService.rejectOrderItem(id, user?.employeeId);
   }
 

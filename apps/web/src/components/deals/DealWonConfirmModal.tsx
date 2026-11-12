@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
+import { Modal, Button, Alert, Space, Typography, Descriptions, App } from 'antd';
+import { TrophyOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { markWonApi } from '../../api/deals';
 import { formatCurrency } from '../../constants/labels';
+import { useAuthStore } from '../../store/authStore';
+
+const { Text, Paragraph } = Typography;
 
 interface Props {
   isOpen: boolean;
@@ -21,21 +26,22 @@ export const DealWonConfirmModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
+  const { user } = useAuthStore();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
+  const effectiveClosingSale = closingSaleName || user?.fullName || 'Nhân viên phụ trách';
+
   const handleConfirm = async () => {
-    if (!closingSaleName) {
-      setError('Bắt buộc phải thiết lập Sale chốt hợp đồng trước khi xác nhận THẮNG DEAL.');
-      return;
-    }
     setError('');
     setLoading(true);
 
     try {
       await markWonApi(dealId);
+      message.success('Xác nhận THẮNG DEAL thành công! Đơn hàng mới đã được tự động khởi tạo.');
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -46,53 +52,72 @@ export const DealWonConfirmModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 text-slate-100 shadow-2xl space-y-4">
-        <h2 className="text-lg font-bold text-emerald-400 border-b border-slate-800 pb-2 flex items-center gap-2">
-          🏆 Xác nhận THẮNG DEAL
-        </h2>
+    <Modal
+      title={
+        <Space>
+          <TrophyOutlined style={{ color: '#faad14', fontSize: 20 }} />
+          <Text strong style={{ fontSize: 16 }}>Xác nhận THẮNG DEAL (Chốt Hợp Đồng)</Text>
+        </Space>
+      }
+      open={isOpen}
+      onCancel={onClose}
+      footer={[
+        <Button key="cancel" onClick={onClose} disabled={loading}>
+          Hủy
+        </Button>,
+        <Button
+          key="submit"
+          type="primary"
+          icon={<CheckCircleOutlined />}
+          loading={loading}
+          onClick={handleConfirm}
+          style={{ background: '#0C6B37', borderColor: '#0C6B37' }}
+        >
+          Xác nhận THẮNG DEAL
+        </Button>,
+      ]}
+      destroyOnHidden
+      width={520}
+    >
+      <Descriptions
+        bordered
+        size="small"
+        column={1}
+        style={{ marginTop: 16, marginBottom: 16 }}
+      >
+        <Descriptions.Item label="Cơ hội (Deal)">
+          <Text strong>{dealName}</Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="Giá trị kỳ vọng">
+          <Text strong style={{ color: '#0C6B37' }}>
+            {formatCurrency(expectedValue)}
+          </Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="Sale chốt ghi nhận">
+          <Text strong style={{ color: '#1677ff' }}>
+            {effectiveClosingSale}
+          </Text>
+        </Descriptions.Item>
+      </Descriptions>
 
-        <div className="bg-slate-800/60 p-4 rounded-lg text-xs space-y-2 border border-slate-700">
-          <div>
-            <span className="text-slate-400">Cơ hội:</span> <strong className="text-slate-200">{dealName}</strong>
-          </div>
-          <div>
-            <span className="text-slate-400">Giá trị kỳ vọng:</span>{' '}
-            <strong className="text-emerald-400">{formatCurrency(expectedValue)}</strong>
-          </div>
-          <div>
-            <span className="text-slate-400">Sale chốt được ghi nhận:</span>{' '}
-            <strong className={closingSaleName ? 'text-indigo-400' : 'text-rose-400'}>
-              {closingSaleName || 'CHƯA THIẾT LẬP (Bắt buộc!)'}
-            </strong>
-          </div>
-        </div>
+      <Alert
+        type="success"
+        showIcon
+        message="Tự động tạo Đơn hàng (Draft Order)"
+        description="Khi xác nhận Thắng Deal, hệ thống sẽ tự động tạo một Đơn hàng nháp (Draft) gắn liền với doanh nghiệp và cơ hội này. Bạn có thể kiểm tra chi tiết và Gửi duyệt lên Ban Giám đốc (Boss)."
+        style={{ marginBottom: 16 }}
+      />
 
-        <p className="text-xs text-slate-400">
-          Xác nhận THẮNG DEAL sẽ cập nhật trạng thái cơ hội thành công, đồng thời tự động tạo mục đơn hàng mới gắn liền với cơ hội này.
-        </p>
-
-        {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm">{error}</div>}
-
-        <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
-          >
-            Hủy
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={loading || !closingSaleName}
-            className="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
-          >
-            {loading ? 'Đang xử lý...' : 'Xác nhận THẮNG DEAL'}
-          </button>
-        </div>
-      </div>
-    </div>
+      {error && (
+        <Alert
+          type="error"
+          message={error}
+          showIcon
+          style={{ marginBottom: 16 }}
+          closable
+          onClose={() => setError('')}
+        />
+      )}
+    </Modal>
   );
 };
-

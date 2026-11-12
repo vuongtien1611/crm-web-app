@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  message,
+  App,
   Button,
   Tag,
   Row,
@@ -12,6 +12,7 @@ import {
   Modal,
   Input,
   Form,
+  Popconfirm,
 } from 'antd';
 import {
   UserOutlined,
@@ -28,13 +29,16 @@ import {
   CalendarOutlined,
   FileTextOutlined,
   ArrowRightOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
-import { getLeadDetailApi, updateLeadStatusApi, markLeadFailedApi, LeadDetail } from '../../api/leads';
+import { getLeadDetailApi, updateLeadStatusApi, markLeadFailedApi, restoreLeadConvertedApi, LeadDetail } from '../../api/leads';
 import { LeadQualifyModal } from '../../components/leads/LeadQualifyModal';
 import { LeadAssignModal } from '../../components/leads/LeadAssignModal';
 import { LeadConvertDealModal } from '../../components/leads/LeadConvertDealModal';
+import { DealEditQuickModal } from '../../components/deals/DealEditQuickModal';
 import { ActivityTimeline } from '../../components/leads/ActivityTimeline';
 import { formatDate, formatDateTime, getStatusLabel } from '../../constants/labels';
+import { useAuthStore } from '../../store/authStore';
 import {
   DetailPageHeader,
   DetailSummaryGrid,
@@ -46,6 +50,12 @@ import {
 } from '../../components/common/detail';
 
 export const LeadDetailPage: React.FC = () => {
+  const { message } = App.useApp();
+  const { user } = useAuthStore();
+  const canAssignLead = Boolean(
+    user?.roles?.some((r) => ['ADMIN', 'BOSS', 'SUPER_ADMIN', 'SALES_TEAM_LEADER'].includes(r)) ||
+    user?.permissions?.includes('LEAD_ASSIGN')
+  );
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -59,7 +69,9 @@ export const LeadDetailPage: React.FC = () => {
   const [isQualifyOpen, setIsQualifyOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [isConvertOpen, setIsConvertOpen] = useState(false);
+  const [isEditDealOpen, setIsEditDealOpen] = useState(false);
   const [isMarkFailedOpen, setIsMarkFailedOpen] = useState(false);
+  const [restoringConverted, setRestoringConverted] = useState(false);
 
   const [failedReasonInput, setFailedReasonInput] = useState('');
   const [markFailedError, setMarkFailedError] = useState('');
@@ -102,6 +114,22 @@ export const LeadDetailPage: React.FC = () => {
       message.error(err.message || 'Không thể cập nhật trạng thái');
     } finally {
       setUpdatingStatus(null);
+    }
+  };
+
+  // Khôi phục trạng thái CONVERTED cho Lead đã có Deal (Rule 4)
+  const handleRestoreConverted = async () => {
+    if (!id || restoringConverted) return;
+    setRestoringConverted(true);
+    try {
+      await restoreLeadConvertedApi(id);
+      setLead((prev) => (prev ? { ...prev, status: 'CONVERTED' } : prev));
+      message.success('Đã đưa Lead về trạng thái Đã chuyển đổi');
+      await fetchDetail(false);
+    } catch (err: any) {
+      message.error(err.message || 'Không thể đưa Lead về trạng thái Đã chuyển đổi');
+    } finally {
+      setRestoringConverted(false);
     }
   };
 
@@ -198,14 +226,45 @@ export const LeadDetailPage: React.FC = () => {
               Đánh giá chất lượng
             </Button>
 
-            <Button
-              icon={<UserOutlined />}
-              onClick={() => setIsAssignOpen(true)}
-            >
-              Phân công Sale
-            </Button>
+            {canAssignLead && (
+              <Button
+                icon={<UserOutlined />}
+                onClick={() => setIsAssignOpen(true)}
+              >
+                Phân công Sale
+              </Button>
+            )}
 
-            {lead.quality === 'POTENTIAL' && lead.status !== 'CONVERTED' && (
+            {lead.deal && (
+              <>
+                <Button
+                  icon={<RocketOutlined />}
+                  onClick={() => navigate(`/deals/${lead.deal!.id}`)}
+                >
+                  Xem Deal (#{lead.deal.id})
+                </Button>
+                <Button
+                  icon={<EditOutlined />}
+                  onClick={() => setIsEditDealOpen(true)}
+                >
+                  Chỉnh sửa Deal
+                </Button>
+              </>
+            )}
+
+            {lead.deal && lead.status !== 'CONVERTED' && (
+              <Button
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                loading={restoringConverted}
+                onClick={handleRestoreConverted}
+                style={{ background: 'var(--vmax-green)', borderColor: 'var(--vmax-green)' }}
+              >
+                Đưa về Đã chuyển đổi
+              </Button>
+            )}
+
+            {!lead.deal && lead.quality === 'POTENTIAL' && lead.status !== 'CONVERTED' && (
               <Button
                 type="primary"
                 icon={<RocketOutlined />}
@@ -216,7 +275,7 @@ export const LeadDetailPage: React.FC = () => {
               </Button>
             )}
 
-            {lead.status !== 'FAILED' && lead.status !== 'CONVERTED' && (
+            {lead.status !== 'FAILED' && (
               <Button
                 danger
                 icon={<CloseCircleOutlined />}
@@ -286,6 +345,106 @@ export const LeadDetailPage: React.FC = () => {
         />
       )}
 
+      {/* Cảnh báo: Lead đã có Deal nhưng trạng thái hiện tại != CONVERTED (Rule 6) */}
+      {lead.deal && lead.status !== 'CONVERTED' && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16, borderRadius: 12, border: '1px solid #ffe58f', background: '#fffbe6' }}
+          message={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <strong style={{ fontSize: 15, color: '#d46b08' }}>
+                  Lead này đã từng được chuyển thành Deal nhưng trạng thái hiện tại chưa phải Đã chuyển đổi.
+                </strong>
+                <div style={{ marginTop: 6, color: '#595959' }}>
+                  <span>Deal liên kết: <strong>{lead.deal.deal_name}</strong> (Mã: #{lead.deal.id})</span>
+                  <span style={{ marginLeft: 12 }}>Trạng thái Deal: <Tag color="processing">{lead.deal.status}</Tag></span>
+                  {lead.deal.expected_value ? (
+                    <span style={{ marginLeft: 12 }}>
+                      Giá trị: <strong>{Number(lead.deal.expected_value).toLocaleString('vi-VN')} VND</strong>
+                    </span>
+                  ) : null}
+                  {lead.deal.account_name && (
+                    <span style={{ marginLeft: 12 }}>Doanh nghiệp: <strong>{lead.deal.account_name}</strong></span>
+                  )}
+                </div>
+              </div>
+              <Space wrap>
+                <Button
+                  type="primary"
+                  icon={<CheckCircleOutlined />}
+                  loading={restoringConverted}
+                  onClick={handleRestoreConverted}
+                  style={{ background: 'var(--vmax-green)', borderColor: 'var(--vmax-green)' }}
+                >
+                  Đưa về Đã chuyển đổi
+                </Button>
+                <Button
+                  icon={<RocketOutlined />}
+                  onClick={() => navigate(`/deals/${lead.deal!.id}`)}
+                >
+                  Xem Deal
+                </Button>
+                <Button
+                  icon={<EditOutlined />}
+                  onClick={() => setIsEditDealOpen(true)}
+                >
+                  Chỉnh sửa Deal
+                </Button>
+              </Space>
+            </div>
+          }
+        />
+      )}
+
+      {/* Banner thông tin Deal đã tạo khi status === CONVERTED */}
+      {lead.deal && lead.status === 'CONVERTED' && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<RocketOutlined />}
+          style={{ marginBottom: 16, borderRadius: 12, border: '1px solid #b7eb8f', background: '#F6FBF7' }}
+          message={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <strong style={{ fontSize: 15, color: '#135200' }}>
+                  Khách hàng này đã có Cơ hội bán hàng (Deal) liên kết:
+                </strong>
+                <div style={{ marginTop: 4 }}>
+                  <span>Tên Deal: <strong>{lead.deal.deal_name}</strong> (Mã: #{lead.deal.id})</span>
+                  <span style={{ marginLeft: 12 }}>Trạng thái Deal: <Tag color="processing">{lead.deal.status}</Tag></span>
+                  {lead.deal.expected_value ? (
+                    <span style={{ marginLeft: 12 }}>
+                      Giá trị: <strong>{Number(lead.deal.expected_value).toLocaleString('vi-VN')} VND</strong>
+                    </span>
+                  ) : null}
+                  {lead.deal.account_name && (
+                    <span style={{ marginLeft: 12 }}>Doanh nghiệp: <strong>{lead.deal.account_name}</strong></span>
+                  )}
+                </div>
+              </div>
+              <Space wrap>
+                <Button
+                  type="primary"
+                  icon={<ArrowRightOutlined />}
+                  onClick={() => navigate(`/deals/${lead.deal!.id}`)}
+                  style={{ background: 'var(--vmax-green)', borderColor: 'var(--vmax-green)' }}
+                >
+                  Xem Deal #{lead.deal.id}
+                </Button>
+                <Button
+                  icon={<EditOutlined />}
+                  onClick={() => setIsEditDealOpen(true)}
+                >
+                  Chỉnh sửa Deal
+                </Button>
+              </Space>
+            </div>
+          }
+        />
+      )}
+
       {/* 3. Main 2-Column Responsive Layout */}
       <Row gutter={[20, 20]}>
         {/* Cột trái: Quy trình trạng thái & Thông tin khách hàng & Nguồn tiếp thị */}
@@ -298,14 +457,30 @@ export const LeadDetailPage: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
               {(['NEW', 'CALLED', 'CONSULTED', 'FOLLOWING', 'CONVERTED', 'FAILED'] as const).map((st) => {
                 const isActive = lead.status === st;
-                const isConvertedOrFailed = st === 'CONVERTED' || st === 'FAILED';
                 const isUpdatingThis = updatingStatus === st;
+
+                const handleClick = () => {
+                  if (isActive) return;
+                  if (st === 'FAILED') {
+                    setIsMarkFailedOpen(true);
+                    return;
+                  }
+                  if (st === 'CONVERTED') {
+                    if (lead.deal) {
+                      handleRestoreConverted();
+                    } else {
+                      setIsConvertOpen(true);
+                    }
+                    return;
+                  }
+                  handleStatusChange(st);
+                };
 
                 return (
                   <Button
                     key={st}
-                    disabled={isConvertedOrFailed || !!updatingStatus}
-                    onClick={() => handleStatusChange(st)}
+                    disabled={isActive || !!updatingStatus || restoringConverted}
+                    onClick={handleClick}
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -532,6 +707,17 @@ export const LeadDetailPage: React.FC = () => {
         onClose={() => setIsConvertOpen(false)}
         onSuccess={() => fetchDetail(false)}
       />
+
+      {lead.deal && (
+        <DealEditQuickModal
+          isOpen={isEditDealOpen}
+          dealId={lead.deal.id}
+          initialDealName={lead.deal.deal_name}
+          initialExpectedValue={lead.deal.expected_value ? Number(lead.deal.expected_value) : 0}
+          onClose={() => setIsEditDealOpen(false)}
+          onSuccess={() => fetchDetail(false)}
+        />
+      )}
 
       {/* Mark Failed Ant Design Modal */}
       <Modal

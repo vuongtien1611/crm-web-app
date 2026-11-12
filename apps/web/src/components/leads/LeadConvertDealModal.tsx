@@ -1,5 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Modal, Form, Input, InputNumber, Button, Row, Col, Alert, Typography, App } from 'antd';
+import { RocketOutlined, BankOutlined, UserOutlined, PhoneOutlined, MailOutlined, DollarOutlined, FileTextOutlined } from '@ant-design/icons';
 import { convertLeadToDealApi } from '../../api/leads';
+
+const { Text } = Typography;
 
 interface Props {
   isOpen: boolean;
@@ -20,37 +24,42 @@ export const LeadConvertDealModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
-  const [companyName, setCompanyName] = useState(defaultContactName ? `${defaultContactName} Corp` : '');
-  const [taxCode, setTaxCode] = useState('');
-  const [contactName, setContactName] = useState(defaultContactName);
-  const [contactPhone, setContactPhone] = useState(defaultPhone);
-  const [contactEmail, setContactEmail] = useState(defaultEmail);
-  const [dealName, setDealName] = useState(defaultContactName ? `Cơ hội - ${defaultContactName}` : '');
-  const [expectedValue, setExpectedValue] = useState('10000000');
-  const [error, setError] = useState('');
+  const { message } = App.useApp();
+  const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  if (!isOpen) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!companyName.trim() || !contactName.trim() || !dealName.trim()) {
-      setError('Vui lòng điền tên công ty, tên người liên hệ và tên cơ hội bán hàng');
-      return;
+  useEffect(() => {
+    if (isOpen) {
+      setError('');
+      form.setFieldsValue({
+        companyName: defaultContactName ? `${defaultContactName} Corp` : '',
+        taxCode: '',
+        contactName: defaultContactName || '',
+        contactPhone: defaultPhone || '',
+        contactEmail: defaultEmail || '',
+        dealName: defaultContactName ? `Cơ hội - ${defaultContactName}` : '',
+        expectedValue: 10000000,
+      });
     }
+  }, [isOpen, defaultContactName, defaultPhone, defaultEmail, form]);
+
+  const handleSubmit = async (values: any) => {
     setError('');
     setLoading(true);
 
     try {
       await convertLeadToDealApi(leadId, {
-        companyName,
-        taxCode: taxCode || undefined,
-        contactName,
-        contactPhone: contactPhone || undefined,
-        contactEmail: contactEmail || undefined,
-        dealName,
-        expectedValue: Number(expectedValue) || 0,
+        companyName: values.companyName.trim(),
+        taxCode: values.taxCode?.trim() || undefined,
+        contactName: values.contactName.trim(),
+        contactPhone: values.contactPhone?.trim() || undefined,
+        contactEmail: values.contactEmail?.trim() || undefined,
+        dealName: values.dealName.trim(),
+        expectedValue: values.expectedValue || 0,
       });
+
+      message.success('Chuyển đổi Lead thành Deal thành công!');
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -61,133 +70,114 @@ export const LeadConvertDealModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 text-slate-100 shadow-2xl">
-        <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
-          <h2 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
-            🚀 Chuyển đổi Lead thành Deal
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
-            ✕
-          </button>
-        </div>
+    <Modal
+      title={
+        <Text strong style={{ fontSize: 16 }}>
+          <RocketOutlined style={{ color: '#0C6B37', marginRight: 8 }} />
+          Chuyển đổi Lead thành Cơ hội (Deal)
+        </Text>
+      }
+      open={isOpen}
+      onCancel={onClose}
+      footer={null}
+      destroyOnHidden
+      width={640}
+    >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Chuyển đổi khách hàng TIỀM NĂNG này sẽ tự động tạo một Doanh nghiệp (Account), Người liên hệ chính (Contact), và Cơ hội bán hàng (Deal) tương ứng để bắt đầu đàm phán."
+      />
 
-        <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs">
-          Chuyển đổi khách hàng <strong>TIỀM NĂNG</strong> này sẽ tự động tạo một <strong>Doanh nghiệp (Account)</strong> mới, <strong>Người liên hệ chính (Contact)</strong>, và <strong>Cơ hội bán hàng (Deal)</strong> với trạng thái Đang mở, đồng thời chuyển Lead sang trạng thái <strong>ĐÃ CHUYỂN ĐỔI</strong>.
-        </div>
+      {error && (
+        <Alert
+          type="error"
+          message={error}
+          showIcon
+          style={{ marginBottom: 16 }}
+          closable
+          onClose={() => setError('')}
+        />
+      )}
 
-        {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Tên công ty / Doanh nghiệp *
-              </label>
-              <input
-                type="text"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Mã số thuế (MST)
-              </label>
-              <input
-                type="text"
-                value={taxCode}
-                onChange={(e) => setTaxCode(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                placeholder="0312345678"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Người liên hệ *
-              </label>
-              <input
-                type="text"
-                value={contactName}
-                onChange={(e) => setContactName(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Số điện thoại
-              </label>
-              <input
-                type="text"
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Email liên hệ
-              </label>
-              <input
-                type="email"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Tên cơ hội bán hàng (Deal Name) *
-              </label>
-              <input
-                type="text"
-                value={dealName}
-                onChange={(e) => setDealName(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Giá trị kỳ vọng (VND)
-              </label>
-              <input
-                type="number"
-                value={expectedValue}
-                onChange={(e) => setExpectedValue(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
+      <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Row gutter={16}>
+          <Col span={14}>
+            <Form.Item
+              name="companyName"
+              label="Tên doanh nghiệp / Công ty"
+              rules={[{ required: true, message: 'Vui lòng nhập tên công ty' }]}
             >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
+              <Input prefix={<BankOutlined />} placeholder="Ví dụ: Công ty TNHH ABC" />
+            </Form.Item>
+          </Col>
+          <Col span={10}>
+            <Form.Item name="taxCode" label="Mã số thuế (MST)">
+              <Input placeholder="0312345678" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={12}>
+          <Col span={8}>
+            <Form.Item
+              name="contactName"
+              label="Người liên hệ chính"
+              rules={[{ required: true, message: 'Vui lòng nhập tên người liên hệ' }]}
             >
-              {loading ? 'Đang chuyển đổi...' : 'Tạo Deal & Chuyển đổi'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+              <Input prefix={<UserOutlined />} placeholder="Nguyễn Văn A" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="contactPhone" label="Số điện thoại">
+              <Input prefix={<PhoneOutlined />} placeholder="0987654321" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="contactEmail" label="Email">
+              <Input prefix={<MailOutlined />} placeholder="email@example.com" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={16}>
+          <Col span={14}>
+            <Form.Item
+              name="dealName"
+              label="Tên cơ hội bán hàng (Deal Name)"
+              rules={[{ required: true, message: 'Vui lòng nhập tên cơ hội' }]}
+            >
+              <Input prefix={<FileTextOutlined />} placeholder="Ví dụ: Triển khai phần mềm CRM" />
+            </Form.Item>
+          </Col>
+          <Col span={10}>
+            <Form.Item
+              name="expectedValue"
+              label="Giá trị kỳ vọng (VND)"
+              rules={[{ required: true, message: 'Vui lòng nhập giá trị kỳ vọng' }]}
+            >
+              <InputNumber
+                prefix={<DollarOutlined />}
+                style={{ width: '100%' }}
+                formatter={(val) => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                parser={(val) => Number(val ? val.replace(/\$\s?|(,*)/g, '') : 0) as any}
+                placeholder="10,000,000"
+                min={0}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <Button onClick={onClose} disabled={loading}>
+            Hủy
+          </Button>
+          <Button type="primary" htmlType="submit" loading={loading} icon={<RocketOutlined />}>
+            Tạo Deal & Chuyển đổi
+          </Button>
+        </div>
+      </Form>
+    </Modal>
   );
 };
-

@@ -12,6 +12,17 @@ import { UpdateWeeklyReportDto } from './dto/update-weekly-report.dto';
 import { QueryWeeklyReportDto } from './dto/query-weekly-report.dto';
 import * as ExcelJS from 'exceljs';
 
+interface WeeklyReportDailyItemRow {
+  id: string | number;
+  daily_report_id: string | number;
+  work_title: string;
+  work_detail: string;
+  status: string;
+  progress_percent: number | null;
+  note: string | null;
+  project_name: string | null;
+}
+
 @Injectable()
 export class WeeklyReportsService {
   constructor(private readonly kysely: KyselyService) {}
@@ -139,7 +150,7 @@ export class WeeklyReportsService {
     const reportIds = dailyReports.map((r) => r.id);
 
     // Query daily report items
-    let reportItems: any[] = [];
+    let reportItems: WeeklyReportDailyItemRow[] = [];
     if (reportIds.length > 0) {
       reportItems = await db
         .selectFrom('daily_report_items as dri')
@@ -474,7 +485,7 @@ export class WeeklyReportsService {
     actorEmployeeId: string,
     actorRoles: string[],
   ): Promise<{ buffer: Buffer; filename: string }> {
-    let reports: any[];
+    let reports: Awaited<ReturnType<typeof this.getWeeklyReports>>;
     if (reportId) {
       const single = await this.getWeeklyReportById(reportId, actorEmployeeId, actorRoles);
       reports = [single];

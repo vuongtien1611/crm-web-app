@@ -110,6 +110,18 @@ async function runEnvHardeningTests() {
     assert.strictEqual(res5.errors.length, 0, 'Expected 0 errors');
     console.log('✅ PASS: Fully configured production environment passed validation');
 
+    // TEST 6: Out-of-bounds DB pool configuration fails validation
+    console.log('--- TEST 6: Out-of-bounds DB pool configuration fails validation ---');
+    const invalidPoolConfig = {
+      ...validConfig,
+      database: { poolMax: 150, poolMin: 200 },
+    };
+    const res6 = validateProductionEnv(invalidPoolConfig);
+    assert.strictEqual(res6.isValid, false, 'Expected invalid pool config to fail');
+    assert.ok(res6.errors.some((e) => e.includes('DATABASE_POOL_MAX')), 'Expected error for DATABASE_POOL_MAX');
+    assert.ok(res6.errors.some((e) => e.includes('DATABASE_POOL_MIN')), 'Expected error for DATABASE_POOL_MIN');
+    console.log('✅ PASS: Out-of-bounds DB pool configuration properly rejected');
+
     console.log('==================================================');
     console.log('ALL PRODUCTION ENV HARDENING TESTS PASSED! ✅');
     console.log('==================================================');

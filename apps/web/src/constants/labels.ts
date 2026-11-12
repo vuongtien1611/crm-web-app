@@ -33,9 +33,9 @@ export const STATUS_LABELS: Record<string, string> = {
   // Order & Order Item Workflow
   DRAFT: 'Nháp',
   PENDING: 'Chờ xử lý',
-  PENDING_APPROVAL: 'Chờ duyệt',
+  PENDING_APPROVAL: 'Chờ phê duyệt',
   NEED_MORE_INFO: 'Cần bổ sung thông tin',
-  APPROVED: 'Đã duyệt',
+  APPROVED: 'Đã phê duyệt',
   REJECTED: 'Đã từ chối',
   CANCELLED: 'Đã hủy',
   IN_PROGRESS: 'Đang thực hiện',

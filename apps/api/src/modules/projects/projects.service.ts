@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
 import { AssignProjectDto, AssignmentType } from './dto/assign-project.dto';
 import { ReplaceAssigneeDto } from './dto/replace-assignee.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -31,13 +31,13 @@ export class ProjectsService {
   // AUDIT LOG HELPER
   // --------------------------------------------------
   private async logAudit(
-    trx: any,
+    trx: CrmTransaction,
     action: string,
     entityType: string,
     entityId: string | number,
     actorEmployeeId?: string | number | null,
-    payloadBefore?: any,
-    payloadAfter?: any,
+    payloadBefore?: Record<string, unknown> | null,
+    payloadAfter?: Record<string, unknown> | null,
   ) {
     await trx
       .insertInto('audit_logs')
@@ -485,15 +485,15 @@ export class ProjectsService {
   // TASK MANAGEMENT & PROGRESS DERIVATION
   // --------------------------------------------------
 
-  private async recalculateProgress(trx: any, projectId: string) {
+  private async recalculateProgress(trx: CrmTransaction, projectId: string) {
     // Get all tasks for this project
     const milestones = await trx
       .selectFrom('project_milestones')
       .select('id')
-      .where('project_id', '=', projectId as any)
+      .where('project_id', '=', projectId)
       .execute();
 
-    const milestoneIds = milestones.map((m: any) => m.id);
+    const milestoneIds = milestones.map((m) => m.id);
     if (milestoneIds.length === 0) {
       await trx
         .updateTable('projects')

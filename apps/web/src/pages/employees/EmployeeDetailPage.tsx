@@ -22,6 +22,7 @@ import {
   CrownOutlined,
   DollarCircleOutlined,
   FileTextOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -36,6 +37,7 @@ import {
   DetailRelatedList,
 } from '../../components/common/detail';
 import { PromoteDemoteModal } from '../../components/employees/PromoteDemoteModal';
+import { TransferDepartmentModal } from '../../components/employees/TransferDepartmentModal';
 
 const { Title, Text } = Typography;
 
@@ -59,7 +61,9 @@ export const EmployeeDetailPage: React.FC = () => {
     ['BOSS', 'ADMIN', 'ACCOUNTANT'].includes(r)
   );
   const isBossOrAdmin = user?.roles?.some((r) => ['BOSS', 'ADMIN'].includes(r));
+  const isBoss = user?.roles?.includes('BOSS');
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -157,6 +161,20 @@ export const EmployeeDetailPage: React.FC = () => {
                 }}
               >
                 Tăng / Giáng chức
+              </Button>
+            )}
+            {isBoss && (
+              <Button
+                type="primary"
+                icon={<SwapOutlined />}
+                onClick={() => setTransferModalOpen(true)}
+                style={{
+                  backgroundColor: '#0C6B37',
+                  borderColor: '#0C6B37',
+                  fontWeight: 600,
+                }}
+              >
+                Chuyển Bộ Phận / Team
               </Button>
             )}
             {canViewFinancials && (
@@ -577,6 +595,20 @@ export const EmployeeDetailPage: React.FC = () => {
         }}
         onClose={() => setPromoteModalOpen(false)}
         onSuccess={() => fetchDetail(employee.id)}
+      />
+
+      {/* Modal Chuyển Bộ Phận / Team */}
+      <TransferDepartmentModal
+        isOpen={transferModalOpen}
+        onClose={() => setTransferModalOpen(false)}
+        onSuccess={() => fetchDetail(employee.id)}
+        employeeId={employee.id}
+        employeeName={employee.full_name}
+        employeeCode={employee.employee_code}
+        currentDepartment={currentTeam?.department || null}
+        currentTeamName={currentTeam?.name || null}
+        currentTeamId={currentTeam?.id || null}
+        isLeader={currentTeam?.isLeader || false}
       />
     </div>
   );

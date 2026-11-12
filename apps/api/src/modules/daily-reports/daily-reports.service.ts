@@ -12,6 +12,7 @@ import { UpdateDailyReportDto } from './dto/update-daily-report.dto';
 import { QueryDailyReportDto } from './dto/query-daily-report.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { normalizeDailyReportItem } from '../../common/mappers/data-mapping.util';
 
 @Injectable()
 export class DailyReportsService {
@@ -40,7 +41,7 @@ export class DailyReportsService {
 
     if (existing) {
       throw new ConflictException(
-        `Daily report for employee #${actorEmployeeId} on ${dto.report_date} already exists`,
+        `Bạn đã gửi báo cáo công việc cho ngày ${dto.report_date} rồi. Mỗi nhân sự chỉ tạo 1 báo cáo/ngày. Vui lòng mở báo cáo hôm nay trong danh sách để cập nhật hoặc bấm "+ Thêm đầu việc".`,
       );
     }
 
@@ -86,30 +87,20 @@ export class DailyReportsService {
       // Insert daily report items if provided
       if (dto.items && Array.isArray(dto.items) && dto.items.length > 0) {
         for (let idx = 0; idx < dto.items.length; idx++) {
-          const item = dto.items[idx];
-          const workTitle = item.work_title ?? item.workTitle;
-          const workDetail = item.work_detail ?? item.workDetail;
-          if (workTitle && workDetail) {
-            const progressVal = item.progress_percent !== undefined ? item.progress_percent : item.progressPercent;
-            if (progressVal !== undefined && progressVal !== null) {
-              const num = Number(progressVal);
-              if (isNaN(num) || num < 0 || num > 100) {
-                throw new BadRequestException('progress_percent must be between 0 and 100');
-              }
-            }
-
+          const norm = normalizeDailyReportItem(dto.items[idx], idx);
+          if (norm.workTitle && norm.workDetail) {
             await trx
               .insertInto('daily_report_items')
               .values({
                 daily_report_id: report.id,
-                project_id: item.project_id ?? item.projectId ?? null,
-                work_title: workTitle,
-                work_detail: workDetail,
-                link: item.link ?? null,
-                status: item.status ?? 'TODO',
-                progress_percent: progressVal !== undefined ? Number(progressVal) : 0,
-                note: item.note ?? null,
-                sort_order: item.sort_order ?? item.sortOrder ?? idx,
+                project_id: norm.projectId as any,
+                work_title: norm.workTitle,
+                work_detail: norm.workDetail,
+                link: norm.link,
+                status: norm.status,
+                progress_percent: norm.progressPercent,
+                note: norm.note,
+                sort_order: norm.sortOrder,
               })
               .execute();
           }
@@ -162,18 +153,17 @@ export class DailyReportsService {
         baseQuery = baseQuery.where('dr.employee_id', '=', employeeId as any);
       }
       if (teamId) {
-        const teamMemberIds = await db
-          .selectFrom('team_memberships')
-          .select('employee_id')
-          .where('team_id', '=', teamId as any)
-          .where(sql`effective_range @> NOW()` as any)
-          .execute();
-        const ids = teamMemberIds.map((m) => m.employee_id);
-        if (ids.length === 0) return [];
-        baseQuery = baseQuery.where('dr.employee_id', 'in', ids as any[]);
+        baseQuery = baseQuery.where(
+          sql`EXISTS (
+            SELECT 1 FROM team_memberships tm
+            WHERE tm.employee_id = dr.employee_id
+              AND tm.team_id = ${teamId}
+              AND tm.effective_range @> dr.submitted_at
+          )` as any,
+        );
       }
     }
-    // 2. TEAM LEADER: Current team members only (NOW() <@ effective_range)
+    // 2. TEAM LEADER: Historical and current reports based on submitted_at inside team membership range
     else if (isTeamLeader) {
       // Find current led team
       const ledTeam = await db
@@ -193,29 +183,39 @@ export class DailyReportsService {
           return [];
         }
       } else {
-        // Find current members of led team
-        const currentMembers = await db
-          .selectFrom('team_memberships')
-          .select('employee_id')
-          .where('team_id', '=', ledTeam.team_id)
-          .where(sql`effective_range @> NOW()` as any)
-          .execute();
-
-        const memberIds = currentMembers.map((m) => String(m.employee_id));
-        // Leader can also see own reports
-        if (!memberIds.includes(String(actorEmployeeId))) {
-          memberIds.push(String(actorEmployeeId));
-        }
-
         if (query.scope === 'own') {
           baseQuery = baseQuery.where('dr.employee_id', '=', actorEmployeeId as any);
         } else if (employeeId) {
-          if (!memberIds.includes(String(employeeId))) {
-            return []; // Outside team scope -> return empty
+          if (String(employeeId) === String(actorEmployeeId)) {
+            baseQuery = baseQuery.where('dr.employee_id', '=', actorEmployeeId as any);
+          } else {
+            baseQuery = baseQuery
+              .where('dr.employee_id', '=', employeeId as any)
+              .where(
+                sql`EXISTS (
+                  SELECT 1 FROM team_memberships tm
+                  WHERE tm.employee_id = dr.employee_id
+                    AND tm.team_id = ${ledTeam.team_id}
+                    AND tm.effective_range @> dr.submitted_at
+                )` as any,
+              );
           }
-          baseQuery = baseQuery.where('dr.employee_id', '=', employeeId as any);
         } else {
-          baseQuery = baseQuery.where('dr.employee_id', 'in', memberIds as any[]);
+          baseQuery = baseQuery.where((eb) =>
+            eb.or([
+              eb('dr.employee_id', '=', actorEmployeeId as any),
+              eb(
+                sql`EXISTS (
+                  SELECT 1 FROM team_memberships tm
+                  WHERE tm.employee_id = dr.employee_id
+                    AND tm.team_id = ${ledTeam.team_id}
+                    AND tm.effective_range @> dr.submitted_at
+                )`,
+                '=',
+                sql`true`,
+              ),
+            ]),
+          );
         }
       }
     }
@@ -615,19 +615,115 @@ export class DailyReportsService {
       throw new ForbiddenException('You can only update your own daily reports');
     }
 
-    const [updated] = await db
-      .updateTable('daily_reports')
-      .set({
-        difficulty: dto.difficulty !== undefined ? dto.difficulty : report.difficulty,
-        support_needed: dto.support_needed !== undefined ? dto.support_needed : report.support_needed,
-        next_plan: dto.next_plan !== undefined ? dto.next_plan : report.next_plan,
-        note: dto.note !== undefined ? dto.note : report.note,
-      })
-      .where('id', '=', id as any)
-      .returningAll()
-      .execute();
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const [updated] = await trx
+        .updateTable('daily_reports')
+        .set({
+          difficulty: dto.difficulty !== undefined ? dto.difficulty : report.difficulty,
+          support_needed: dto.support_needed !== undefined ? dto.support_needed : report.support_needed,
+          next_plan: dto.next_plan !== undefined ? dto.next_plan : report.next_plan,
+          note: dto.note !== undefined ? dto.note : report.note,
+        })
+        .where('id', '=', id as any)
+        .returningAll()
+        .execute();
 
-    return updated;
+      // If support_needed was updated and is non-empty, send notification if changed
+      if (
+        dto.support_needed &&
+        dto.support_needed.trim() !== '' &&
+        dto.support_needed !== report.support_needed &&
+        this.notificationsService
+      ) {
+        const emp = await trx
+          .selectFrom('employees')
+          .select(['employee_code', 'full_name'])
+          .where('id', '=', actorEmployeeId as any)
+          .executeTakeFirst();
+        const empName = emp ? `${emp.full_name} (${emp.employee_code})` : `Nhân viên #${actorEmployeeId}`;
+
+        await this.notificationsService.notifyTeamLeader(
+          actorEmployeeId,
+          {
+            eventType: 'DAILY_REPORT_SUPPORT_NEEDED',
+            title: 'Yêu cầu hỗ trợ từ thành viên',
+            content: `${empName} cập nhật cần hỗ trợ: "${dto.support_needed.trim()}"`,
+            deepLinkUrl: `/daily-reports?employee_id=${actorEmployeeId}&date=${report.report_date}`,
+            entityType: 'DAILY_REPORT',
+            entityId: String(report.id),
+          },
+          trx,
+        );
+      }
+
+      // Sync items if dto.items is provided
+      if (dto.items && Array.isArray(dto.items)) {
+        const currentItems = await trx
+          .selectFrom('daily_report_items')
+          .select(['id'])
+          .where('daily_report_id', '=', id as any)
+          .execute();
+
+        const keptItemIds: number[] = [];
+
+        for (let idx = 0; idx < dto.items.length; idx++) {
+          const norm = normalizeDailyReportItem(dto.items[idx], idx);
+          if (!norm.workTitle || !norm.workDetail) continue;
+
+          const itemId = norm.id ? Number(norm.id) : null;
+          const existingItem = itemId && currentItems.some((ci) => Number(ci.id) === itemId);
+
+          if (existingItem) {
+            await trx
+              .updateTable('daily_report_items')
+              .set({
+                work_title: norm.workTitle,
+                work_detail: norm.workDetail,
+                link: norm.link,
+                status: norm.status,
+                progress_percent: norm.progressPercent,
+                note: norm.note,
+                sort_order: norm.sortOrder,
+                project_id: norm.projectId as any,
+                updated_at: new Date(),
+              })
+              .where('id', '=', itemId as any)
+              .execute();
+            keptItemIds.push(itemId);
+          } else {
+            const [inserted] = await trx
+              .insertInto('daily_report_items')
+              .values({
+                daily_report_id: report.id,
+                work_title: norm.workTitle,
+                work_detail: norm.workDetail,
+                link: norm.link,
+                status: norm.status,
+                progress_percent: norm.progressPercent,
+                note: norm.note,
+                sort_order: norm.sortOrder,
+                project_id: norm.projectId as any,
+              })
+              .returning('id')
+              .execute();
+            if (inserted?.id) {
+              keptItemIds.push(Number(inserted.id));
+            }
+          }
+        }
+
+        // Delete any items that were removed
+        const toDelete = currentItems.map((c) => Number(c.id)).filter((cid) => !keptItemIds.includes(cid));
+        if (toDelete.length > 0) {
+          await trx
+            .deleteFrom('daily_report_items')
+            .where('id', 'in', toDelete as any)
+            .execute();
+        }
+      }
+
+      return updated;
+    });
   }
 
   // ----------------------------------------------------------------
@@ -868,6 +964,45 @@ export class DailyReportsService {
       .execute();
 
     return { success: true, id: itemId };
+  }
+
+  // ----------------------------------------------------------------
+  // DELETE DAILY REPORT (Own report or Admin only)
+  // ----------------------------------------------------------------
+  async deleteDailyReport(
+    id: string,
+    actorEmployeeId: string,
+    actorRoles: string[],
+  ) {
+    const db = this.kysely.db;
+    const report = await db
+      .selectFrom('daily_reports')
+      .select(['id', 'employee_id'])
+      .where('id', '=', id as any)
+      .executeTakeFirst();
+
+    if (!report) {
+      throw new NotFoundException(`Daily report #${id} not found`);
+    }
+
+    const isAdmin = actorRoles.includes('ADMIN') || actorRoles.includes('BOSS');
+    if (!isAdmin && String(report.employee_id) !== String(actorEmployeeId)) {
+      throw new ForbiddenException('You can only delete your own daily reports');
+    }
+
+    await db.transaction().execute(async (trx) => {
+      await trx
+        .deleteFrom('daily_report_items')
+        .where('daily_report_id', '=', id as any)
+        .execute();
+
+      await trx
+        .deleteFrom('daily_reports')
+        .where('id', '=', id as any)
+        .execute();
+    });
+
+    return { success: true, id };
   }
 
   // ----------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { KyselyService } from '../../database/kysely.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadQualityDto, LeadQuality } from './dto/update-lead-quality.dto';
@@ -46,6 +46,16 @@ export class LeadsService {
     let assignmentGap = false;
     let assignmentGapReason: string | null = null;
 
+    const roles: string[] = actor?.roles || [];
+    const isElevated = roles.includes('ADMIN') || roles.includes('BOSS') || roles.includes('SUPER_ADMIN');
+    const isSalesLeader = roles.includes('SALES_TEAM_LEADER');
+    const isSale = roles.includes('SALE');
+
+    // Default assignedSaleId to current user if creator is a SALE employee
+    if (!assignedSaleId && actor?.employeeId && (isSale || (!isElevated && !isSalesLeader))) {
+      assignedSaleId = String(actor.employeeId);
+    }
+
     // Validate assignedSaleId if provided
     if (assignedSaleId) {
       const targetEmployee = await this.kysely.db
@@ -65,11 +75,6 @@ export class LeadsService {
       }
 
       if (actor) {
-        const roles: string[] = actor.roles || [];
-        const isElevated = roles.includes('ADMIN') || roles.includes('BOSS') || roles.includes('SUPER_ADMIN');
-        const isSalesLeader = roles.includes('SALES_TEAM_LEADER');
-        const isSale = roles.includes('SALE');
-
         if (isSale && !isElevated && !isSalesLeader) {
           // Normal SALE can ONLY assign to self
           if (actor.employeeId && String(assignedSaleId) !== String(actor.employeeId)) {
@@ -109,6 +114,8 @@ export class LeadsService {
       }
     }
 
+    const creatorEmployeeId = dto.creatorEmployeeId ? String(dto.creatorEmployeeId) : (actor?.employeeId ? String(actor.employeeId) : null);
+
     return await this.kysely.db.transaction().execute(async (trx) => {
       const [lead] = await trx
         .insertInto('leads')
@@ -120,7 +127,7 @@ export class LeadsService {
           channel_id: dto.channelId ? (dto.channelId as any) : null,
           campaign_id: dto.campaignId ? (dto.campaignId as any) : null,
           sales_content_id: dto.salesContentId ? (dto.salesContentId as any) : null,
-          creator_employee_id: dto.creatorEmployeeId ? (dto.creatorEmployeeId as any) : null,
+          creator_employee_id: creatorEmployeeId ? (creatorEmployeeId as any) : null,
           assigned_sale_id: assignedSaleId ? (assignedSaleId as any) : null,
           landing_page: dto.landingPage || null,
           external_id: dto.externalId || null,
@@ -133,46 +140,46 @@ export class LeadsService {
         .returningAll()
         .execute();
 
-      if (autoAssigned && assignedSaleId) {
+      if (assignedSaleId) {
         await trx
           .insertInto('lead_assignment_history')
           .values({
             lead_id: lead.id,
             from_sale_id: null,
             to_sale_id: assignedSaleId as any,
-            assigned_by_employee_id: dto.creatorEmployeeId ? (dto.creatorEmployeeId as any) : null,
-            reason: 'Auto-assigned via Market Assignment',
+            assigned_by_employee_id: creatorEmployeeId ? (creatorEmployeeId as any) : null,
+            reason: autoAssigned ? 'Auto-assigned via Market Assignment' : 'Gán ban đầu khi tạo Lead',
           })
           .execute();
 
         if (this.notificationsService) {
-          await this.notificationsService.createNotification(
-            {
-              employeeId: assignedSaleId,
-              eventType: 'LEAD_AUTO_ASSIGNED',
-              title: 'Lead mới được phân công tự động',
-              content: `Bạn được phân công phụ trách Lead: ${lead.full_name}`,
-              deepLinkUrl: `/leads/${lead.id}`,
-              entityType: 'LEAD',
-              entityId: String(lead.id),
-            },
-            trx,
-          );
-        }
-      } else if (assignedSaleId && (!actor?.employeeId || String(actor.employeeId) !== String(assignedSaleId))) {
-        if (this.notificationsService) {
-          await this.notificationsService.createNotification(
-            {
-              employeeId: assignedSaleId,
-              eventType: 'LEAD_ASSIGNED',
-              title: 'Lead mới được phân công',
-              content: `Bạn được phân công phụ trách Lead: ${lead.full_name}`,
-              deepLinkUrl: `/leads/${lead.id}`,
-              entityType: 'LEAD',
-              entityId: String(lead.id),
-            },
-            trx,
-          );
+          if (autoAssigned) {
+            await this.notificationsService.createNotification(
+              {
+                employeeId: assignedSaleId,
+                eventType: 'LEAD_AUTO_ASSIGNED',
+                title: 'Lead mới được phân công tự động',
+                content: `Bạn được phân công phụ trách Lead: ${lead.full_name}`,
+                deepLinkUrl: `/leads/${lead.id}`,
+                entityType: 'LEAD',
+                entityId: String(lead.id),
+              },
+              trx,
+            );
+          } else if (!actor?.employeeId || String(actor.employeeId) !== String(assignedSaleId)) {
+            await this.notificationsService.createNotification(
+              {
+                employeeId: assignedSaleId,
+                eventType: 'LEAD_ASSIGNED',
+                title: 'Lead mới được phân công',
+                content: `Bạn được phân công phụ trách Lead: ${lead.full_name}`,
+                deepLinkUrl: `/leads/${lead.id}`,
+                entityType: 'LEAD',
+                entityId: String(lead.id),
+              },
+              trx,
+            );
+          }
         }
       }
 
@@ -388,8 +395,24 @@ export class LeadsService {
       .orderBy('sa.occurred_at', 'desc')
       .execute();
 
+    // Fetch associated deal if already converted
+    const deal = await this.kysely.db
+      .selectFrom('deals as d')
+      .leftJoin('accounts as a', 'a.id', 'd.account_id')
+      .select([
+        'd.id',
+        'd.deal_name',
+        'd.status',
+        'd.expected_value',
+        'd.account_id',
+        'a.company_name as account_name',
+      ])
+      .where('d.lead_id', '=', id as any)
+      .executeTakeFirst();
+
     return {
       ...lead,
+      deal: deal || null,
       assignmentHistory,
       activities,
     };
@@ -424,7 +447,7 @@ export class LeadsService {
     return updatedLead;
   }
 
-  async updateStatus(id: string, dto: UpdateLeadStatusDto) {
+  async updateStatus(id: string, dto: UpdateLeadStatusDto, actor?: any) {
     const lead = await this.kysely.db
       .selectFrom('leads')
       .select(['id', 'status'])
@@ -436,6 +459,16 @@ export class LeadsService {
     }
 
     if (dto.status === LeadStatus.CONVERTED) {
+      const existingDeal = await this.kysely.db
+        .selectFrom('deals')
+        .select(['id', 'deal_name', 'status'])
+        .where('lead_id', '=', id as any)
+        .executeTakeFirst();
+
+      if (existingDeal) {
+        const res = await this.restoreConverted(id, actor);
+        return res.lead;
+      }
       throw new BadRequestException('Use POST /leads/:id/convert-to-deal to convert a Lead to a Deal');
     }
 
@@ -453,7 +486,81 @@ export class LeadsService {
       .returningAll()
       .execute();
 
+    if (actor?.employeeId) {
+      await this.kysely.db
+        .insertInto('audit_logs')
+        .values({
+          actor_employee_id: actor.employeeId as any,
+          actor_type: 'USER',
+          action: 'LEAD_STATUS_UPDATED',
+          entity_type: 'LEAD',
+          entity_id: id as any,
+          payload_before_sanitized: JSON.stringify({ status: lead.status }),
+          payload_after_sanitized: JSON.stringify({ status: dto.status }),
+        })
+        .execute();
+    }
+
     return updatedLead;
+  }
+
+  async restoreConverted(id: string, actor?: any) {
+    const lead = await this.kysely.db
+      .selectFrom('leads')
+      .selectAll()
+      .where('id', '=', id as any)
+      .executeTakeFirst();
+
+    if (!lead) {
+      throw new NotFoundException(`Lead [${id}] not found`);
+    }
+
+    const existingDeal = await this.kysely.db
+      .selectFrom('deals')
+      .selectAll()
+      .where('lead_id', '=', id as any)
+      .executeTakeFirst();
+
+    if (!existingDeal) {
+      throw new BadRequestException(
+        'Lead chưa có Deal liên kết. Vui lòng sử dụng chức năng "Chuyển đổi thành Deal" để tạo Deal mới.',
+      );
+    }
+
+    let updatedLead = lead;
+    if (lead.status !== LeadStatus.CONVERTED) {
+      const [res] = await this.kysely.db
+        .updateTable('leads')
+        .set({
+          status: LeadStatus.CONVERTED,
+          updated_at: new Date(),
+        })
+        .where('id', '=', id as any)
+        .returningAll()
+        .execute();
+      updatedLead = res;
+
+      if (actor?.employeeId) {
+        await this.kysely.db
+          .insertInto('audit_logs')
+          .values({
+            actor_employee_id: actor.employeeId as any,
+            actor_type: 'USER',
+            action: 'LEAD_RESTORE_CONVERTED',
+            entity_type: 'LEAD',
+            entity_id: id as any,
+            payload_before_sanitized: JSON.stringify({ status: lead.status }),
+            payload_after_sanitized: JSON.stringify({ status: LeadStatus.CONVERTED, deal_id: existingDeal.id }),
+          })
+          .execute();
+      }
+    }
+
+    return {
+      success: true,
+      lead: updatedLead,
+      deal: existingDeal,
+    };
   }
 
   async assignLead(id: string, dto: AssignLeadDto, currentEmployeeId?: string, actor?: any) {
@@ -575,7 +682,7 @@ export class LeadsService {
     return updatedLead;
   }
 
-  async convertToDeal(id: string, dto: ConvertLeadToDealDto, currentEmployeeId?: string) {
+  async convertToDeal(id: string, dto: ConvertLeadToDealDto, currentEmployeeId?: string, actor?: any) {
     const lead = await this.kysely.db
       .selectFrom('leads')
       .selectAll()
@@ -590,6 +697,19 @@ export class LeadsService {
     if (lead.quality !== LeadQuality.POTENTIAL) {
       throw new BadRequestException(
         `Cannot convert Lead [${id}] to Deal. Lead quality must be POTENTIAL, but is currently ${lead.quality}`,
+      );
+    }
+
+    // BUSINESS RULE CHECK: Lead MUST NOT already have an existing deal
+    const existingDeal = await this.kysely.db
+      .selectFrom('deals')
+      .select(['id', 'deal_name', 'status'])
+      .where('lead_id', '=', id as any)
+      .executeTakeFirst();
+
+    if (existingDeal) {
+      throw new BadRequestException(
+        `Lead [${id}] đã có Deal liên kết (#${existingDeal.id} - "${existingDeal.deal_name}"). Vui lòng dùng chức năng "Đưa về Đã chuyển đổi" hoặc "Chỉnh sửa Deal".`,
       );
     }
 
@@ -630,33 +750,59 @@ export class LeadsService {
         account = newAccount;
       }
 
-      // 2. Create Contact under Account
-      const [contact] = await trx
-        .insertInto('contacts')
-        .values({
-          account_id: account.id,
-          full_name: dto.contactName,
-          phone: dto.contactPhone || lead.phone || null,
-          email: dto.contactEmail || lead.email || null,
-          is_primary: true,
-        })
-        .returningAll()
-        .execute();
+      // 2. Create or Find Contact under Account
+      let contact: any = await trx
+        .selectFrom('contacts')
+        .selectAll()
+        .where('account_id', '=', account.id)
+        .where((eb) =>
+          eb.or([
+            eb('full_name', '=', dto.contactName),
+            ...(dto.contactPhone ? [eb('phone', '=', dto.contactPhone)] : []),
+            ...(dto.contactEmail ? [eb('email', '=', dto.contactEmail)] : []),
+          ]),
+        )
+        .executeTakeFirst();
+
+      if (!contact) {
+        const [newContact] = await trx
+          .insertInto('contacts')
+          .values({
+            account_id: account.id,
+            full_name: dto.contactName,
+            phone: dto.contactPhone || lead.phone || null,
+            email: dto.contactEmail || lead.email || null,
+            is_primary: true,
+          })
+          .returningAll()
+          .execute();
+        contact = newContact;
+      }
 
       // 3. Create Deal
-      const [deal] = await trx
-        .insertInto('deals')
-        .values({
-          account_id: account.id,
-          primary_contact_id: contact.id,
-          lead_id: lead.id,
-          assigned_sale_id: assignedSaleId as any,
-          deal_name: dto.dealName,
-          expected_value: dto.expectedValue || 0,
-          status: 'OPEN',
-        })
-        .returningAll()
-        .execute();
+      let deal: any;
+      try {
+        const [newDeal] = await trx
+          .insertInto('deals')
+          .values({
+            account_id: account.id,
+            primary_contact_id: contact.id,
+            lead_id: lead.id,
+            assigned_sale_id: assignedSaleId as any,
+            closing_sale_id: assignedSaleId as any,
+            deal_name: dto.dealName,
+            expected_value: dto.expectedValue || 0,
+            status: 'OPEN',
+          })
+          .returningAll()
+          .execute();
+        deal = newDeal;
+      } catch (dbErr: any) {
+        if (dbErr?.code === '23505' || dbErr?.message?.includes('deals_lead_id_key')) {
+          throw new ConflictException('Lead này đã được chuyển đổi thành Deal');
+        }
+        throw dbErr;
+      }
 
       // 4. Transition Lead status to CONVERTED
       await trx
@@ -667,6 +813,25 @@ export class LeadsService {
         })
         .where('id', '=', lead.id)
         .execute();
+
+      // Audit log
+      if (actor?.employeeId) {
+        await trx
+          .insertInto('audit_logs')
+          .values({
+            actor_employee_id: actor.employeeId as any,
+            actor_type: 'USER',
+            action: 'LEAD_CONVERTED_TO_DEAL',
+            entity_type: 'LEAD',
+            entity_id: lead.id as any,
+            payload_after_sanitized: JSON.stringify({
+              deal_id: deal.id,
+              account_id: account.id,
+              contact_id: contact.id,
+            }),
+          })
+          .execute();
+      }
 
       return {
         deal,

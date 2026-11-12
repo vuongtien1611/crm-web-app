@@ -88,11 +88,21 @@ export async function createPayrollPeriod(data: { periodKey: string; startDate: 
   return (await res.json()) as PayrollPeriod;
 }
 
+export interface PayrollApiError extends Error {
+  status?: number;
+}
+
+function createPayrollApiError(message: string, status: number): PayrollApiError {
+  const err = new Error(message) as PayrollApiError;
+  err.status = status;
+  return err;
+}
+
 export async function fetchPayrollPeriodById(id: string) {
   const res = await fetchWithAuth(`/api/payroll/periods/${id}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || 'Failed to fetch payroll period detail');
+    throw createPayrollApiError(errorData.message || 'Failed to fetch payroll period detail', res.status);
   }
   return (await res.json()) as PayrollPeriod;
 }
@@ -166,7 +176,7 @@ export async function fetchEmployeePayrollDetail(periodId: string, employeeId: s
   const res = await fetchWithAuth(`/api/payroll/periods/${periodId}/employees/${employeeId}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || 'Failed to fetch employee payroll detail');
+    throw createPayrollApiError(errorData.message || 'Failed to fetch employee payroll detail', res.status);
   }
   return (await res.json()) as EmployeePayrollDetail;
 }

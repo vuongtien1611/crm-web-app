@@ -1,27 +1,41 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Typography, Tabs, List, Button, Tag, Space, Empty, Spin, message } from 'antd';
+import { Card, Typography, Tabs, List, Button, Tag, Space, Empty, Spin, Tooltip, App } from 'antd';
 import {
   BellOutlined,
   CheckOutlined,
   ClockCircleOutlined,
   LinkOutlined,
   ReloadOutlined,
+  SoundOutlined,
+  AudioMutedOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import {
   getNotificationsApi,
   markNotificationReadApi,
   markAllNotificationsReadApi,
+  sendTestNotificationApi,
   NotificationItem,
 } from '../../api/notifications';
+import {
+  playNotificationSound,
+  isNotificationSoundEnabled,
+  toggleNotificationSound,
+} from '../../utils/notificationSound';
+import { useAuthStore } from '../../store/authStore';
 
 const { Title, Text } = Typography;
 
 export const NotificationsPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [testing, setTesting] = useState<boolean>(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => isNotificationSoundEnabled());
 
   const fetchNotifications = useCallback(async (unreadOnly: boolean) => {
     setLoading(true);
@@ -41,6 +55,47 @@ export const NotificationsPage: React.FC = () => {
   useEffect(() => {
     fetchNotifications(activeTab === 'unread');
   }, [activeTab, fetchNotifications]);
+
+  // Real-time listener: prepend incoming notifications dispatched from SSE stream
+  useEffect(() => {
+    const handleNewNotif = (e: Event) => {
+      const customEvent = e as CustomEvent<NotificationItem>;
+      if (!customEvent.detail) return;
+      const item = customEvent.detail;
+      setNotifications((prev) => [item, ...prev.filter((n) => n.id !== item.id)]);
+    };
+
+    window.addEventListener('crm:new_notification', handleNewNotif);
+    return () => {
+      window.removeEventListener('crm:new_notification', handleNewNotif);
+    };
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = toggleNotificationSound();
+    setSoundEnabled(next);
+    if (next) {
+      playNotificationSound();
+      message.success('Đã bật âm thanh chuông thông báo');
+    } else {
+      message.info('Đã tắt âm thanh chuông thông báo');
+    }
+  };
+
+  const handleSendTest = async () => {
+    setTesting(true);
+    try {
+      await sendTestNotificationApi({
+        title: '🔔 Thông báo thử nghiệm Real-time',
+        content: `Kiểm tra real-time SSE và âm thanh chuông thành công cho ${user?.fullName || user?.username}!`,
+      });
+      message.success('Đã gửi thông báo thử nghiệm thành công!');
+    } catch (err: any) {
+      message.error(err.message || 'Lỗi khi gửi thông báo thử nghiệm');
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const handleMarkAsRead = async (item: NotificationItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -103,6 +158,8 @@ export const NotificationsPage: React.FC = () => {
     if (eventType.includes('DAILY_REPORT')) return <Tag color="cyan">Báo cáo ngày</Tag>;
     if (eventType.includes('SUBSCRIPTION')) return <Tag color="geekblue">Subscription</Tag>;
     if (eventType.includes('PAYROLL')) return <Tag color="magenta">Bảng lương</Tag>;
+    if (eventType.includes('PASSWORD_RESET')) return <Tag color="volcano">Bảo mật</Tag>;
+    if (eventType.includes('TEST')) return <Tag color="gold">Thử nghiệm</Tag>;
     return <Tag>{eventType}</Tag>;
   };
 
@@ -122,25 +179,73 @@ export const NotificationsPage: React.FC = () => {
           <Title level={3} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <BellOutlined style={{ color: 'var(--vmax-green, #10b981)' }} />
             Trung tâm thông báo
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '11px',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                background: '#ecfdf5',
+                color: '#059669',
+                fontWeight: 600,
+                marginLeft: 4,
+              }}
+            >
+              <span
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 6px #10b981',
+                }}
+              />
+              Real-time
+            </span>
           </Title>
           <Text type="secondary" style={{ fontSize: '13px' }}>
-            Theo dõi tất cả cập nhật nghiệp vụ liên quan đến bạn
+            Theo dõi tất cả cập nhật nghiệp vụ thời gian thực liên quan đến chức vụ của bạn
           </Text>
         </div>
-        <Space>
+
+        <Space wrap>
+          {/* Sound Toggle */}
+          <Tooltip title={soundEnabled ? 'Chuông thông báo đang BẬT' : 'Chuông thông báo đang TẮT'}>
+            <Button
+              icon={soundEnabled ? <SoundOutlined style={{ color: '#10b981' }} /> : <AudioMutedOutlined style={{ color: '#9ca3af' }} />}
+              onClick={handleToggleSound}
+            >
+              {soundEnabled ? 'Âm thanh: Bật' : 'Âm thanh: Tắt'}
+            </Button>
+          </Tooltip>
+
+          {/* Test Notification Button */}
+          <Tooltip title="Gửi một thông báo thử nghiệm để nghe âm thanh và xem cập nhật real-time">
+            <Button
+              icon={<ThunderboltOutlined style={{ color: '#f59e0b' }} />}
+              loading={testing}
+              onClick={handleSendTest}
+            >
+              Thử nghiệm âm báo
+            </Button>
+          </Tooltip>
+
           <Button
             icon={<ReloadOutlined />}
             onClick={() => fetchNotifications(activeTab === 'unread')}
           >
             Làm mới
           </Button>
+
           <Button
             type="primary"
             icon={<CheckOutlined />}
             onClick={handleMarkAllRead}
             style={{ background: 'var(--vmax-green, #10b981)', borderColor: 'var(--vmax-green, #10b981)' }}
           >
-            Đánh dấu đã đọc tất cả
+            Đã đọc tất cả
           </Button>
         </Space>
       </div>

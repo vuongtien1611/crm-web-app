@@ -34,8 +34,12 @@ async function runLeadIntegrationTests() {
   }
 
   // Fixtures Setup
-  const pos = await db.selectFrom('positions').select('id').executeTakeFirst();
-  if (!pos) throw new Error('No positions found in DB');
+  const pos = await db
+    .selectFrom('positions')
+    .select('id')
+    .where('code', '=', 'SALE')
+    .executeTakeFirst();
+  if (!pos) throw new Error('No SALE position found in DB');
 
   // Create test employee 1 (Sale)
   const empCode1 = `EMP-TEST-SALE-${Date.now()}`;

@@ -336,7 +336,6 @@ export const EmployeesListPage: React.FC = () => {
           {canCreate && (
             <Button
               type="primary"
-              icon={<PlusOutlined />}
               style={{
                 background: 'var(--vmax-green)',
                 borderColor: 'var(--vmax-green)',
@@ -525,12 +524,12 @@ export const EmployeesListPage: React.FC = () => {
         employee={
           promoteTargetEmployee
             ? {
-                id: promoteTargetEmployee.id,
-                employee_code: promoteTargetEmployee.employee_code,
-                full_name: promoteTargetEmployee.full_name,
-                position: promoteTargetEmployee.position,
-                currentTeam: promoteTargetEmployee.currentTeam,
-              }
+              id: promoteTargetEmployee.id,
+              employee_code: promoteTargetEmployee.employee_code,
+              full_name: promoteTargetEmployee.full_name,
+              position: promoteTargetEmployee.position,
+              currentTeam: promoteTargetEmployee.currentTeam,
+            }
             : null
         }
         onClose={() => setPromoteTargetEmployee(null)}

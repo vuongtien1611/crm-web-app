@@ -12,10 +12,11 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Enable PNPM package manager
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
-# Copy root workspace manifests
+# Copy root workspace manifests & patches
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches/ ./patches/
 
 # Copy package manifests for isolated cache invalidation
 COPY packages/config/package.json ./packages/config/
@@ -31,7 +32,7 @@ RUN pnpm install --frozen-lockfile
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/config/node_modules ./packages/config/node_modules
@@ -39,6 +40,7 @@ COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_module
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json* ./
+COPY patches/ ./patches/
 COPY packages/ ./packages/
 COPY apps/api/ ./apps/api/
 

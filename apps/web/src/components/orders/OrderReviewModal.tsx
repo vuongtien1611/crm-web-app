@@ -5,6 +5,8 @@ import { requestMoreInfoApi, rejectOrderApi, cancelOrderApi } from '../../api/or
 interface OrderReviewModalProps {
   visible: boolean;
   orderId: string;
+  orderName?: string;
+  orderCode?: string;
   actionType: 'REQUEST_MORE_INFO' | 'REJECT' | 'CANCEL';
   onClose: () => void;
   onSuccess: () => void;
@@ -13,6 +15,8 @@ interface OrderReviewModalProps {
 export const OrderReviewModal: React.FC<OrderReviewModalProps> = ({
   visible,
   orderId,
+  orderName,
+  orderCode,
   actionType,
   onClose,
   onSuccess,
@@ -24,7 +28,7 @@ export const OrderReviewModal: React.FC<OrderReviewModalProps> = ({
   const getTitle = () => {
     switch (actionType) {
       case 'REQUEST_MORE_INFO':
-        return 'Yêu cầu bổ sung thông tin';
+        return 'Yêu cầu bổ sung thông tin đơn hàng';
       case 'REJECT':
         return 'Từ chối đơn hàng';
       case 'CANCEL':
@@ -67,19 +71,27 @@ export const OrderReviewModal: React.FC<OrderReviewModalProps> = ({
       okButtonProps={{ danger: actionType === 'CANCEL' || actionType === 'REJECT' }}
     >
       <div style={{ marginBottom: 16 }}>
+        {(orderName || orderCode) && (
+          <div style={{ background: '#F8FAF9', padding: '10px 14px', borderRadius: 8, border: '1px solid #E2E8F0', marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>
+              📦 {orderName || orderCode}
+            </div>
+            {orderCode && <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Mã đơn: <strong>{orderCode}</strong></div>}
+          </div>
+        )}
         {actionType === 'CANCEL' && (
           <div style={{ fontSize: 13, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FECACA', padding: '10px 12px', borderRadius: 8 }}>
-            ⚠️ <strong>Cảnh báo:</strong> Hủy đơn hàng sẽ dừng toàn bộ quá trình xử lý và triển khai dịch vụ liên quan. Thao tác này không thể hoàn tác.
+            ⚠️ <strong>Cảnh báo hậu quả:</strong> Hủy đơn hàng sẽ dừng toàn bộ quá trình xử lý và triển khai dịch vụ liên quan. Thao tác này không thể hoàn tác.
           </div>
         )}
         {actionType === 'REJECT' && (
           <div style={{ fontSize: 13, color: '#9A3412', background: '#FFF7ED', border: '1px solid #FFEDD5', padding: '10px 12px', borderRadius: 8 }}>
-            ⚠️ <strong>Hậu quả:</strong> Từ chối đơn hàng sẽ chuyển trạng thái sang Đã từ chối. Nhân viên kinh doanh phụ trách sẽ nhận được thông báo kèm lý do để liên hệ lại khách hàng.
+            ⚠️ <strong>Hậu quả hành động:</strong> Từ chối đơn hàng sẽ chuyển trạng thái sang <strong>ĐÃ TỪ CHỐI (REJECTED)</strong>. Nhân viên kinh doanh phụ trách sẽ nhận được thông báo kèm lý do từ chối để liên hệ xử lý lại với khách hàng.
           </div>
         )}
         {actionType === 'REQUEST_MORE_INFO' && (
           <div style={{ fontSize: 13, color: '#1E40AF', background: '#EFF6FF', border: '1px solid #DBEAFE', padding: '10px 12px', borderRadius: 8 }}>
-            ℹ️ <strong>Thông báo:</strong> Đơn hàng sẽ được chuyển về trạng thái Cần bổ sung thông tin để Sale cập nhật lại yêu cầu hoặc điều khoản trước khi trình duyệt lại.
+            ℹ️ <strong>Thông báo:</strong> Đơn hàng sẽ chuyển về trạng thái <strong>Cần bổ sung thông tin</strong> để nhân viên kinh doanh cập nhật lại yêu cầu hoặc điều khoản trước khi trình duyệt lại.
           </div>
         )}
       </div>

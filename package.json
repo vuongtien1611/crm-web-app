@@ -2,7 +2,13 @@
   "name": "crm-web-app",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
   "scripts": {
+    "dev": "pnpm --parallel --filter api --filter web dev",
     "dev:api": "pnpm --filter api dev",
     "dev:web": "pnpm --filter web dev",
     "build": "pnpm --filter \"@crm/*\" build && pnpm --filter api build && pnpm --filter web build",
@@ -14,9 +20,16 @@
     "test:uat": "pnpm --filter api test:phase-s-uat",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "tunnel": "cloudflared tunnel --url http://localhost:5173"
+    "tunnel": "cloudflared tunnel --url http://localhost:5173",
+    "start:tunnel": "bash scripts/start-tunnel.sh",
+    "stop:tunnel": "bash scripts/stop-tunnel.sh"
   },
   "devDependencies": {
     "typescript": "^5.3.3"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "rc-util@5.44.4": "patches/rc-util@5.44.4.patch"
+    }
   }
 }

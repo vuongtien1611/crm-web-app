@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Modal, Form, Input, Select, Button, Row, Col, Alert, Typography, App } from 'antd';
+import { UserOutlined, PhoneOutlined, MailOutlined, GlobalOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { createLeadApi, getPlatformsApi, getChannelsApi, PlatformItem, ChannelItem } from '../../api/leads';
+import { useAuthStore } from '../../store/authStore';
+
+const { Text } = Typography;
 
 interface Props {
   isOpen: boolean;
@@ -8,63 +13,49 @@ interface Props {
 }
 
 export const LeadCreateModal: React.FC<Props> = ({ isOpen, onClose, onSuccess }) => {
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [platformId, setPlatformId] = useState('');
-  const [channelId, setChannelId] = useState('');
-  const [landingPage, setLandingPage] = useState('');
-  const [utmSource, setUtmSource] = useState('');
-  const [utmMedium, setUtmMedium] = useState('');
-  const [utmCampaign, setUtmCampaign] = useState('');
-  const [error, setError] = useState('');
+  const { message } = App.useApp();
+  const [form] = Form.useForm();
+  const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
-
+  const [error, setError] = useState('');
   const [platforms, setPlatforms] = useState<PlatformItem[]>([]);
   const [channels, setChannels] = useState<ChannelItem[]>([]);
 
   useEffect(() => {
     if (isOpen) {
+      form.resetFields();
+      setError('');
       getPlatformsApi().then(setPlatforms).catch(() => {});
       getChannelsApi().then(setChannels).catch(() => {});
     }
-  }, [isOpen]);
+  }, [isOpen, form]);
 
-  if (!isOpen) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fullName.trim()) {
-      setError('Vui lòng nhập họ và tên');
-      return;
-    }
+  const handleSubmit = async (values: any) => {
     setError('');
     setLoading(true);
 
     try {
+      const isSale = user?.roles?.includes('SALE');
+      const assignedSaleId = isSale && user?.employeeId ? String(user.employeeId) : undefined;
+      const creatorEmployeeId = user?.employeeId ? String(user.employeeId) : undefined;
+
       await createLeadApi({
-        fullName,
-        phone: phone || undefined,
-        email: email || undefined,
-        platformId: platformId || undefined,
-        channelId: channelId || undefined,
-        landingPage: landingPage || undefined,
-        utmSource: utmSource || undefined,
-        utmMedium: utmMedium || undefined,
-        utmCampaign: utmCampaign || undefined,
+        fullName: values.fullName.trim(),
+        phone: values.phone?.trim() || undefined,
+        email: values.email?.trim() || undefined,
+        platformId: values.platformId || undefined,
+        channelId: values.channelId || undefined,
+        landingPage: values.landingPage?.trim() || undefined,
+        utmSource: values.utmSource?.trim() || undefined,
+        utmMedium: values.utmMedium?.trim() || undefined,
+        utmCampaign: values.utmCampaign?.trim() || undefined,
+        assignedSaleId,
+        creatorEmployeeId,
       });
+
+      message.success('Tạo khách hàng tiềm năng thành công!');
       onSuccess();
       onClose();
-      // Reset form
-      setFullName('');
-      setPhone('');
-      setEmail('');
-      setPlatformId('');
-      setChannelId('');
-      setLandingPage('');
-      setUtmSource('');
-      setUtmMedium('');
-      setUtmCampaign('');
     } catch (err: any) {
       setError(err.message || 'Không thể tạo khách hàng tiềm năng');
     } finally {
@@ -73,167 +64,123 @@ export const LeadCreateModal: React.FC<Props> = ({ isOpen, onClose, onSuccess })
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 text-slate-100 shadow-2xl">
-        <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-800">
-          <h2 className="text-xl font-bold text-slate-100">Tạo Khách hàng tiềm năng mới</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 font-bold">
-            ✕
-          </button>
+    <Modal
+      title={<Text strong style={{ fontSize: 16 }}>Tạo Khách Hàng Tiềm Năng Mới (Lead)</Text>}
+      open={isOpen}
+      onCancel={onClose}
+      footer={null}
+      destroyOnHidden
+      width={600}
+    >
+      {error && (
+        <Alert
+          type="error"
+          message={error}
+          showIcon
+          style={{ marginBottom: 16 }}
+          closable
+          onClose={() => setError('')}
+        />
+      )}
+
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleSubmit}
+        initialValues={{
+          platformId: undefined,
+          channelId: undefined,
+        }}
+      >
+        <Form.Item
+          name="fullName"
+          label="Họ và tên"
+          rules={[{ required: true, message: 'Vui lòng nhập họ và tên khách hàng' }]}
+        >
+          <Input prefix={<UserOutlined />} placeholder="Ví dụ: Nguyễn Văn A" />
+        </Form.Item>
+
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="phone"
+              label="Số điện thoại"
+              rules={[
+                { pattern: /^[0-9+() -]{8,20}$/, message: 'Số điện thoại không hợp lệ' },
+              ]}
+            >
+              <Input prefix={<PhoneOutlined />} placeholder="0987654321" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
+              name="email"
+              label="Email"
+              rules={[{ type: 'email', message: 'Email không hợp lệ' }]}
+            >
+              <Input prefix={<MailOutlined />} placeholder="client@example.com" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item name="platformId" label="Nền tảng tiếp thị">
+              <Select
+                placeholder="Trực tiếp / Nhập thủ công"
+                allowClear
+                options={platforms.map((p) => ({
+                  value: p.id,
+                  label: `${p.name} (${p.code})`,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="channelId" label="Kênh tiếp thị">
+              <Select
+                placeholder="Trực tiếp / Nhập thủ công"
+                allowClear
+                options={channels.map((c) => ({
+                  value: c.id,
+                  label: `${c.name} (${c.code})`,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Form.Item name="landingPage" label="Đường dẫn trang đích (Landing Page)">
+          <Input prefix={<GlobalOutlined />} placeholder="https://example.com/landing" />
+        </Form.Item>
+
+        <Row gutter={12}>
+          <Col span={8}>
+            <Form.Item name="utmSource" label="UTM Source">
+              <Input placeholder="google, facebook..." />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="utmMedium" label="UTM Medium">
+              <Input placeholder="cpc, organic..." />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="utmCampaign" label="UTM Campaign">
+              <Input placeholder="q3_campaign..." />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <Button onClick={onClose} disabled={loading}>
+            Hủy
+          </Button>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            Tạo Lead
+          </Button>
         </div>
-
-        {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              Họ và tên *
-            </label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              placeholder="Ví dụ: Nguyễn Văn A"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Số điện thoại
-              </label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-                placeholder="0987654321"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-                placeholder="client@example.com"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Nền tảng tiếp thị
-              </label>
-              <select
-                value={platformId}
-                onChange={(e) => setPlatformId(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="">Trực tiếp / Nhập thủ công</option>
-                {platforms.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Kênh tiếp thị
-              </label>
-              <select
-                value={channelId}
-                onChange={(e) => setChannelId(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="">Trực tiếp / Nhập thủ công</option>
-                {channels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              Đường dẫn trang đích (Landing Page URL)
-            </label>
-            <input
-              type="text"
-              value={landingPage}
-              onChange={(e) => setLandingPage(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              placeholder="https://example.com/landing"
-            />
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                UTM Source
-              </label>
-              <input
-                type="text"
-                value={utmSource}
-                onChange={(e) => setUtmSource(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-                placeholder="google"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                UTM Medium
-              </label>
-              <input
-                type="text"
-                value={utmMedium}
-                onChange={(e) => setUtmMedium(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-                placeholder="cpc"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                UTM Campaign
-              </label>
-              <input
-                type="text"
-                value={utmCampaign}
-                onChange={(e) => setUtmCampaign(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-                placeholder="q3_leadgen"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 transition"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition disabled:opacity-50"
-            >
-              {loading ? 'Đang tạo...' : 'Tạo Lead'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </Form>
+    </Modal>
   );
 };
-

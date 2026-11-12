@@ -56,26 +56,28 @@ async function runPaymentIntegrationTests() {
     // FIXTURES SETUP
     // --------------------------------------------------
     const initialGrossCash = await paymentsService.calculateGrossCash();
-    const pos = await kysely.db.selectFrom('positions').select('id').executeTakeFirstOrThrow();
+    const bossPos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'BOSS').executeTakeFirstOrThrow();
+    const accPos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'ACCOUNTANT').executeTakeFirstOrThrow();
+    const salePos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'SALE').executeTakeFirstOrThrow();
 
     const [boss] = await kysely.db.insertInto('employees').values({
       employee_code: `PAY_BOSS_${Date.now()}`,
       full_name: 'Boss Accountant Manager',
-      position_id: pos.id,
+      position_id: bossPos.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [accountant] = await kysely.db.insertInto('employees').values({
       employee_code: `PAY_ACCT_${Date.now()}`,
       full_name: 'Accountant Staff',
-      position_id: pos.id,
+      position_id: accPos.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [sale] = await kysely.db.insertInto('employees').values({
       employee_code: `PAY_SALE_${Date.now()}`,
       full_name: 'Sale Representative',
-      position_id: pos.id,
+      position_id: salePos.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
@@ -342,7 +344,7 @@ async function runPaymentIntegrationTests() {
     // --------------------------------------------------
     // PAYMENT-18 & ACCEPTANCE_NOT_FULL_PAYMENT: Project acceptance alone does NOT make payment FULLY_PAID
     // --------------------------------------------------
-    const accItem = await ordersService.addOrderItem(String(order.id), { serviceId: String(webService.id), closingSaleId: String(boss.id), originalPrice: 50000000 }, String(boss.id));
+    const accItem = await ordersService.addOrderItem(String(order.id), { serviceId: String(webService.id), closingSaleId: String(sale.id), originalPrice: 50000000 }, String(boss.id));
     await ordersService.submitOrderItem(String(accItem.id), String(boss.id));
     await ordersService.approveOrderItem(String(accItem.id), String(boss.id));
 

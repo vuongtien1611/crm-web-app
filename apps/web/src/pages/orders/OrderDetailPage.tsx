@@ -12,6 +12,7 @@ import {
   Modal,
   Descriptions,
   Avatar,
+  Alert,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -30,8 +31,11 @@ import {
   TeamOutlined,
   PhoneOutlined,
   MailOutlined,
+  ExclamationCircleOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../../store/authStore';
 import {
   fetchOrderByIdApi,
   submitOrderApi,
@@ -49,9 +53,10 @@ import {
 } from '../../api/orders';
 import { OrderReviewModal } from '../../components/orders/OrderReviewModal';
 import { OrderAddItemModal } from '../../components/orders/OrderAddItemModal';
+import { OrderEditItemModal } from '../../components/orders/OrderEditItemModal';
 import { CreateChangeRequestModal } from '../../components/orders/CreateChangeRequestModal';
 import { createRowNavigateHandler, createRowActionHandler } from '../../utils/tableUtils';
-import { getStatusLabel, formatCurrency, formatDateTime } from '../../constants/labels';
+import { getStatusLabel, formatCurrency, formatDateTime, formatDate } from '../../constants/labels';
 import {
   DetailPageHeader,
   DetailSummaryCard,
@@ -64,6 +69,14 @@ import {
 const { Title, Text } = Typography;
 
 export const OrderDetailPage: React.FC = () => {
+  const { user } = useAuthStore();
+  const canApproveOrder = Boolean(
+    user?.roles?.some((r) => ['BOSS', 'ADMIN', 'SUPER_ADMIN'].includes(r))
+  );
+  const canSubmitOrder = Boolean(
+    user?.roles?.some((r) => ['SALE', 'SALES_TEAM_LEADER', 'ADMIN', 'SUPER_ADMIN'].includes(r)) ||
+    user?.permissions?.includes('ORDER_SUBMIT')
+  );
   const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -74,6 +87,7 @@ export const OrderDetailPage: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Modals state
+  const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [reviewAction, setReviewAction] = useState<'REQUEST_MORE_INFO' | 'REJECT' | 'CANCEL'>('REQUEST_MORE_INFO');
   const [addItemModalVisible, setAddItemModalVisible] = useState(false);
@@ -81,6 +95,8 @@ export const OrderDetailPage: React.FC = () => {
   const [selectedAuditLog, setSelectedAuditLog] = useState<any | null>(null);
   const [crModalVisible, setCrModalVisible] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<OrderItem | null>(null);
+  const [editItemModalVisible, setEditItemModalVisible] = useState(false);
 
   // Tải chi tiết đơn hàng - không unmount trang khi refresh ngầm
   const loadOrderDetail = async (isInitial = false) => {
@@ -165,12 +181,13 @@ export const OrderDetailPage: React.FC = () => {
     }
   };
 
-  const handleApproveOrder = async () => {
+  const handleConfirmApprove = async () => {
     if (!order || actionLoading) return;
     setActionLoading('approve-order');
     try {
       await approveOrderApi(order.id);
-      message.success('Đã duyệt đơn hàng');
+      message.success('Đã phê duyệt đơn hàng thành công');
+      setIsApproveModalOpen(false);
       await loadOrderDetail(false);
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Không thể duyệt đơn hàng');
@@ -333,11 +350,11 @@ export const OrderDetailPage: React.FC = () => {
           </Space>
         }
         actions={
-          <Space wrap>
+          <>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/orders')}>
               Quay lại
             </Button>
-            {order.workflow_status === 'DRAFT' && (
+            {order.workflow_status === 'DRAFT' && canSubmitOrder && (
               <Button
                 type="primary"
                 icon={<SendOutlined />}
@@ -345,19 +362,20 @@ export const OrderDetailPage: React.FC = () => {
                 disabled={!!actionLoading}
                 onClick={handleSubmitOrder}
               >
-                Gửi duyệt
+                Gửi duyệt đơn hàng
               </Button>
             )}
-            {order.workflow_status === 'PENDING_APPROVAL' && (
+            {order.workflow_status === 'PENDING_APPROVAL' && canApproveOrder && (
               <>
                 <Button
                   type="primary"
                   icon={<CheckCircleOutlined />}
                   loading={actionLoading === 'approve-order'}
                   disabled={!!actionLoading}
-                  onClick={handleApproveOrder}
+                  onClick={() => setIsApproveModalOpen(true)}
+                  style={{ background: '#0C6B37', borderColor: '#0C6B37' }}
                 >
-                  Duyệt đơn hàng
+                  Phê duyệt
                 </Button>
                 <Button
                   icon={<QuestionCircleOutlined />}
@@ -376,7 +394,7 @@ export const OrderDetailPage: React.FC = () => {
                 </Button>
               </>
             )}
-            {order.workflow_status === 'NEED_MORE_INFO' && (
+            {order.workflow_status === 'NEED_MORE_INFO' && canSubmitOrder && (
               <Button
                 type="primary"
                 icon={<SendOutlined />}
@@ -396,7 +414,7 @@ export const OrderDetailPage: React.FC = () => {
                 Hủy đơn hàng
               </Button>
             )}
-          </Space>
+          </>
         }
       />
 
@@ -434,6 +452,83 @@ export const OrderDetailPage: React.FC = () => {
           subtitle={order.tax_code ? `MST: ${order.tax_code}` : 'Chưa có mã số thuế'}
         />
       </DetailSummaryGrid>
+
+      {/* Workflow status banner (Rule 5 & 6) */}
+      {order.workflow_status === 'PENDING_APPROVAL' && (
+        canApproveOrder ? (
+          <Alert
+            type="warning"
+            showIcon
+            icon={<ExclamationCircleOutlined />}
+            style={{ marginBottom: 16, borderRadius: 10, border: '1px solid #FDE68A', background: '#FFFBEB' }}
+            message={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <strong style={{ fontSize: 15, color: '#92400E' }}>
+                    Đơn hàng đang chờ bạn phê duyệt
+                  </strong>
+                  <div style={{ color: '#78350F', marginTop: 2, fontSize: 13 }}>
+                    Vui lòng kiểm tra các dịch vụ cấu thành và điều khoản hợp đồng trước khi phê duyệt.
+                  </div>
+                </div>
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<CheckCircleOutlined />}
+                    style={{ background: '#0C6B37', borderColor: '#0C6B37' }}
+                    onClick={() => setIsApproveModalOpen(true)}
+                  >
+                    Phê duyệt ngay
+                  </Button>
+                  <Button
+                    danger
+                    icon={<CloseCircleOutlined />}
+                    onClick={() => openReviewModal('REJECT')}
+                  >
+                    Từ chối
+                  </Button>
+                </Space>
+              </div>
+            }
+          />
+        ) : (
+          <Alert
+            type="info"
+            showIcon
+            icon={<ClockCircleOutlined />}
+            style={{ marginBottom: 16, borderRadius: 10, border: '1px solid #BAE6FD', background: '#F0F9FF' }}
+            message={
+              <div>
+                <strong style={{ fontSize: 15, color: '#0369A1' }}>
+                  Đơn hàng đang chờ phê duyệt
+                </strong>
+                <div style={{ color: '#0C4A6E', marginTop: 2, fontSize: 13 }}>
+                  Đơn hàng đã được gửi duyệt và đang chờ Giám đốc (BOSS) xem xét, phê duyệt. Bạn sẽ nhận được thông báo ngay khi đơn hàng được duyệt.
+                </div>
+              </div>
+            }
+          />
+        )
+      )}
+
+      {order.workflow_status === 'APPROVED' && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<CheckCircleOutlined />}
+          style={{ marginBottom: 16, borderRadius: 10, border: '1px solid #BBF7D0', background: '#F0FDF4' }}
+          message={
+            <div>
+              <strong style={{ fontSize: 15, color: '#166534' }}>
+                Đơn hàng đã được phê duyệt
+              </strong>
+              <div style={{ color: '#14532D', marginTop: 2, fontSize: 13 }}>
+                Đơn hàng đã được phê duyệt chính thức. Các dịch vụ trong đơn hàng đã sẵn sàng để triển khai dự án.
+              </div>
+            </div>
+          }
+        />
+      )}
 
       {/* TWO-COLUMN DETAIL LAYOUT */}
       <div className="vmax-detail-layout">
@@ -473,6 +568,20 @@ export const OrderDetailPage: React.FC = () => {
                   dataIndex: 'closing_sale_name',
                   key: 'closing_sale_name',
                   render: (val: string, r: OrderItem) => `${val || '—'} (${r.closing_sale_code || '—'})`,
+                },
+                {
+                  title: 'Thời gian thực hiện',
+                  key: 'timeline',
+                  render: (_: any, r: OrderItem) => {
+                    if (r.start_date || r.end_date) {
+                      return (
+                        <span style={{ fontSize: 13, color: '#334155', whiteSpace: 'nowrap' }}>
+                          {r.start_date ? formatDate(r.start_date) : '...'} → {r.end_date ? formatDate(r.end_date) : '...'}
+                        </span>
+                      );
+                    }
+                    return <Tag color="default">Chưa thiết lập</Tag>;
+                  },
                 },
                 {
                   title: 'Đơn giá gốc',
@@ -516,17 +625,30 @@ export const OrderDetailPage: React.FC = () => {
                   render: (_: any, r: OrderItem) => (
                     <Space onClick={(e) => e.stopPropagation()}>
                       {r.approval_status === 'DRAFT' && (
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={actionLoading === `submit-item-${r.id}`}
-                          disabled={!!actionLoading}
-                          onClick={() => handleSubmitItem(r.id)}
-                        >
-                          Gửi duyệt
-                        </Button>
+                        <>
+                          <Button
+                            size="small"
+                            icon={<EditOutlined />}
+                            disabled={!!actionLoading}
+                            onClick={() => {
+                              setEditingItem(r);
+                              setEditItemModalVisible(true);
+                            }}
+                          >
+                            Sửa
+                          </Button>
+                          <Button
+                            size="small"
+                            type="primary"
+                            loading={actionLoading === `submit-item-${r.id}`}
+                            disabled={!!actionLoading}
+                            onClick={() => handleSubmitItem(r.id)}
+                          >
+                            Gửi duyệt
+                          </Button>
+                        </>
                       )}
-                      {r.approval_status === 'PENDING_APPROVAL' && (
+                      {r.approval_status === 'PENDING_APPROVAL' && canApproveOrder && (
                         <>
                           <Button
                             size="small"
@@ -648,7 +770,7 @@ export const OrderDetailPage: React.FC = () => {
                             key: 'actions',
                             render: (_: any, cr: any) => (
                               <Space onClick={(e) => e.stopPropagation()}>
-                                {cr.status === 'PENDING_APPROVAL' && (
+                                {cr.status === 'PENDING_APPROVAL' && canApproveOrder && (
                                   <>
                                     <Button
                                       size="small"
@@ -839,6 +961,8 @@ export const OrderDetailPage: React.FC = () => {
       <OrderReviewModal
         visible={reviewModalVisible}
         orderId={order.id}
+        orderName={order.order_name || order.order_code}
+        orderCode={order.order_code}
         actionType={reviewAction}
         onClose={() => setReviewModalVisible(false)}
         onSuccess={() => {
@@ -847,12 +971,72 @@ export const OrderDetailPage: React.FC = () => {
         }}
       />
 
+      <Modal
+        title={
+          <Space>
+            <CheckCircleOutlined style={{ color: '#16a34a' }} />
+            <span>Xác nhận phê duyệt đơn hàng</span>
+          </Space>
+        }
+        open={isApproveModalOpen}
+        onCancel={() => setIsApproveModalOpen(false)}
+        onOk={handleConfirmApprove}
+        confirmLoading={actionLoading === 'approve-order'}
+        okText="Phê duyệt đơn hàng"
+        cancelText="Hủy bỏ"
+        okButtonProps={{ type: 'primary', style: { background: '#16a34a', borderColor: '#16a34a' } }}
+      >
+        <div style={{ marginTop: 12 }}>
+          <div style={{ padding: 14, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: '#0f172a' }}>
+              {order.order_name || order.order_code}
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+              Mã đơn hàng: <Text strong style={{ color: '#1e293b' }}>{order.order_code}</Text>
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+              Khách hàng: <Text strong style={{ color: '#1e293b' }}>{order.company_name || 'Khách hàng doanh nghiệp'}</Text>
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+              Tổng giá trị: <Text strong style={{ color: '#0c6b37' }}>{formatCurrency(totalNetValue)}</Text>
+            </div>
+          </div>
+          <Alert
+            type="info"
+            showIcon
+            message="Hậu quả khi phê duyệt:"
+            description={
+              <ul style={{ paddingLeft: 18, margin: '6px 0 0 0', fontSize: 13, lineHeight: '1.6' }}>
+                <li>Đơn hàng sẽ chính thức chuyển sang trạng thái <strong>ĐÃ PHÊ DUYỆT (APPROVED)</strong>.</li>
+                <li>Tất cả các dịch vụ trong đơn sẽ đủ điều kiện triển khai và bàn giao cho khách hàng.</li>
+                <li>Hệ thống sẽ gửi thông báo phê duyệt tới nhân viên Sale phụ trách đơn hàng này.</li>
+              </ul>
+            }
+          />
+        </div>
+      </Modal>
+
       <OrderAddItemModal
         visible={addItemModalVisible}
         orderId={order.id}
         onClose={() => setAddItemModalVisible(false)}
         onSuccess={() => {
           setAddItemModalVisible(false);
+          loadOrderDetail(false);
+        }}
+      />
+
+      <OrderEditItemModal
+        visible={editItemModalVisible}
+        orderId={order.id}
+        item={editingItem}
+        onClose={() => {
+          setEditItemModalVisible(false);
+          setEditingItem(null);
+        }}
+        onSuccess={() => {
+          setEditItemModalVisible(false);
+          setEditingItem(null);
           loadOrderDetail(false);
         }}
       />

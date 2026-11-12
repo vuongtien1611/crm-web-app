@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  message,
+  App,
   Button,
   Tag,
   Row,
@@ -35,6 +35,7 @@ import { DealWonConfirmModal } from '../../components/deals/DealWonConfirmModal'
 import { ActivityTimeline } from '../../components/leads/ActivityTimeline';
 import { formatCurrency, getStatusLabel } from '../../constants/labels';
 import { createRowNavigateHandler } from '../../utils/tableUtils';
+import { useAuthStore } from '../../store/authStore';
 import {
   DetailPageHeader,
   DetailSummaryGrid,
@@ -46,6 +47,13 @@ import {
 } from '../../components/common/detail';
 
 export const DealDetailPage: React.FC = () => {
+  const { message } = App.useApp();
+  const { user } = useAuthStore();
+  const canAssignDeal = Boolean(
+    user?.roles?.some((r) => ['ADMIN', 'BOSS', 'SUPER_ADMIN', 'SALES_TEAM_LEADER'].includes(r)) ||
+    user?.permissions?.includes('DEAL_ASSIGN') ||
+    user?.permissions?.includes('LEAD_ASSIGN')
+  );
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [deal, setDeal] = useState<DealDetail | null>(null);
@@ -203,21 +211,25 @@ export const DealDetailPage: React.FC = () => {
               </Button>
             )}
 
-            <Button
-              icon={<UserOutlined />}
-              disabled={!!actionLoading}
-              onClick={() => setIsAssignOpen(true)}
-            >
-              Phân công phụ trách
-            </Button>
+            {canAssignDeal && (
+              <>
+                <Button
+                  icon={<UserOutlined />}
+                  disabled={!!actionLoading}
+                  onClick={() => setIsAssignOpen(true)}
+                >
+                  Phân công phụ trách
+                </Button>
 
-            <Button
-              icon={<TeamOutlined />}
-              disabled={!!actionLoading}
-              onClick={() => setIsClosingSaleOpen(true)}
-            >
-              Thiết lập Sale chốt
-            </Button>
+                <Button
+                  icon={<TeamOutlined />}
+                  disabled={!!actionLoading}
+                  onClick={() => setIsClosingSaleOpen(true)}
+                >
+                  Thiết lập Sale chốt
+                </Button>
+              </>
+            )}
 
             {deal.status !== 'WON' && deal.status !== 'LOST' && (
               <>

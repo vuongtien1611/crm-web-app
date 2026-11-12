@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface DailyReportWorkItem {
   id?: string;
@@ -46,6 +44,7 @@ export interface UpdateDailyReportPayload {
   support_needed?: string;
   next_plan?: string;
   note?: string;
+  items?: Partial<DailyReportWorkItem>[];
 }
 
 export interface QueryDailyReportsParams {
@@ -118,7 +117,7 @@ export async function getDailyReportsApi(
   if (params?.scope) query.append('scope', params.scope);
 
   const qs = query.toString() ? `?${query.toString()}` : '';
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports${qs}`);
+  const response = await fetchWithAuth(buildApiUrl(`/daily-reports${qs}`));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || 'Lỗi khi tải danh sách báo cáo ngày');
@@ -148,7 +147,7 @@ export async function getDailyReportStatsApi(
   if (params?.scope) query.append('scope', params.scope);
 
   const qs = query.toString() ? `?${query.toString()}` : '';
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports/stats${qs}`);
+  const response = await fetchWithAuth(buildApiUrl(`/daily-reports/stats${qs}`));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || 'Lỗi khi tải thống kê báo cáo');
@@ -157,7 +156,7 @@ export async function getDailyReportStatsApi(
 }
 
 export async function getDailyReportFilterOptionsApi(): Promise<DailyReportFilterOptions> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports/filter-options`);
+  const response = await fetchWithAuth(buildApiUrl('/daily-reports/filter-options'));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || 'Lỗi khi tải bộ lọc');
@@ -175,7 +174,7 @@ export async function getProjectWorkItemsApi(params: {
   if (params.fromDate) query.append('fromDate', params.fromDate);
   if (params.toDate) query.append('toDate', params.toDate);
 
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports/project-work-items?${query.toString()}`);
+  const response = await fetchWithAuth(buildApiUrl(`/daily-reports/project-work-items?${query.toString()}`));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || 'Lỗi khi tải công việc dự án');
@@ -188,7 +187,7 @@ export async function exportDailyReportsApi(params: Record<string, string | unde
   Object.entries(params).forEach(([k, v]) => {
     if (v) query.append(k, v);
   });
-  const response = await fetchWithAuth(`${API_BASE_URL}/exports/daily-reports?${query.toString()}`);
+  const response = await fetchWithAuth(buildApiUrl(`/exports/daily-reports?${query.toString()}`));
   if (!response.ok) {
     throw new Error('Lỗi khi xuất file Excel');
   }
@@ -196,7 +195,7 @@ export async function exportDailyReportsApi(params: Record<string, string | unde
 }
 
 export async function getDailyReportByIdApi(id: string): Promise<DailyReportItem> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports/${id}`);
+  const response = await fetchWithAuth(buildApiUrl(`/daily-reports/${id}`));
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || `Lỗi khi tải chi tiết báo cáo #${id}`);
@@ -207,7 +206,7 @@ export async function getDailyReportByIdApi(id: string): Promise<DailyReportItem
 export async function createDailyReportApi(
   payload: CreateDailyReportPayload,
 ): Promise<DailyReportItem> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports`, {
+  const response = await fetchWithAuth(buildApiUrl('/daily-reports'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -223,7 +222,7 @@ export async function updateDailyReportApi(
   id: string,
   payload: UpdateDailyReportPayload,
 ): Promise<DailyReportItem> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/daily-reports/${id}`, {
+  const response = await fetchWithAuth(buildApiUrl(`/daily-reports/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -231,6 +230,17 @@ export async function updateDailyReportApi(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || `Lỗi khi cập nhật báo cáo #${id}`);
+  }
+  return response.json();
+}
+
+export async function deleteDailyReportApi(id: string): Promise<{ success: boolean; id: string }> {
+  const response = await fetchWithAuth(buildApiUrl(`/daily-reports/${id}`), {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || `Lỗi khi xóa báo cáo #${id}`);
   }
   return response.json();
 }

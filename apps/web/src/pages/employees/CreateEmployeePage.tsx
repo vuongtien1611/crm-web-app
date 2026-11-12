@@ -635,6 +635,7 @@ export const CreateEmployeePage: React.FC = () => {
                     <Input.Password
                       placeholder="Nhập hoặc tạo ngẫu nhiên"
                       id="employee_password"
+                      autoComplete="new-password"
                       visibilityToggle={{
                         visible: passwordVisible,
                         onVisibleChange: setPasswordVisible,

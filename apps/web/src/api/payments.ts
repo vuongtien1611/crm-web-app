@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface AllocationItem {
   id?: string;
@@ -39,19 +37,19 @@ export const getPaymentsApi = async (params?: { page?: number; limit?: number; s
   if (params?.limit) query.append('limit', String(params.limit));
   if (params?.status) query.append('status', params.status);
 
-  const res = await fetchWithAuth(`${API_URL}/payments?${query.toString()}`);
+  const res = await fetchWithAuth(buildApiUrl(`/payments?${query.toString()}`));
   if (!res.ok) throw new Error('Failed to fetch payments');
   return res.json();
 };
 
 export const getGrossCashApi = async () => {
-  const res = await fetchWithAuth(`${API_URL}/payments/gross-cash`);
+  const res = await fetchWithAuth(buildApiUrl('/payments/gross-cash'));
   if (!res.ok) throw new Error('Failed to fetch gross cash');
   return res.json();
 };
 
 export const getPaymentByIdApi = async (id: string) => {
-  const res = await fetchWithAuth(`${API_URL}/payments/${id}`);
+  const res = await fetchWithAuth(buildApiUrl(`/payments/${id}`));
   if (!res.ok) throw new Error('Failed to fetch payment detail');
   return res.json();
 };
@@ -76,7 +74,7 @@ export const createPaymentApi = async (data: {
     allocations: data.allocations,
   };
 
-  const res = await fetchWithAuth(`${API_URL}/payments`, {
+  const res = await fetchWithAuth(buildApiUrl('/payments'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -89,7 +87,7 @@ export const createPaymentApi = async (data: {
 };
 
 export const confirmPaymentApi = async (id: string, data?: { allocations?: AllocationItem[] }) => {
-  const res = await fetchWithAuth(`${API_URL}/payments/${id}/confirm`, {
+  const res = await fetchWithAuth(buildApiUrl(`/payments/${id}/confirm`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),
@@ -102,7 +100,7 @@ export const confirmPaymentApi = async (id: string, data?: { allocations?: Alloc
 };
 
 export const rejectPaymentApi = async (id: string, data?: { reason?: string }) => {
-  const res = await fetchWithAuth(`${API_URL}/payments/${id}/reject`, {
+  const res = await fetchWithAuth(buildApiUrl(`/payments/${id}/reject`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),

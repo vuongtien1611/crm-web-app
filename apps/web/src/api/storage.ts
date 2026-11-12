@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface UploadResponse {
   objectKey: string;
@@ -33,7 +31,7 @@ export const uploadFileApi = async (
   formData.append('filename', file.name);
   formData.append('file', file, file.name);
 
-  const res = await fetchWithAuth(`${API_URL}/storage/upload`, {
+  const res = await fetchWithAuth(buildApiUrl('/storage/upload'), {
     method: 'POST',
     // Do NOT set Content-Type header so the browser sets multipart/form-data with boundary
     body: formData,
@@ -48,7 +46,7 @@ export const uploadFileApi = async (
 };
 
 export const getPaymentProofApi = async (paymentId: string | number): Promise<DownloadResponse> => {
-  const res = await fetchWithAuth(`${API_URL}/storage/payments/${paymentId}/proof`);
+  const res = await fetchWithAuth(buildApiUrl(`/storage/payments/${paymentId}/proof`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể lấy chứng từ thanh toán');
@@ -57,7 +55,7 @@ export const getPaymentProofApi = async (paymentId: string | number): Promise<Do
 };
 
 export const getProjectAcceptanceEvidenceApi = async (projectId: string | number): Promise<DownloadResponse> => {
-  const res = await fetchWithAuth(`${API_URL}/storage/projects/${projectId}/acceptance-evidence`);
+  const res = await fetchWithAuth(buildApiUrl(`/storage/projects/${projectId}/acceptance-evidence`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể lấy tài liệu nghiệm thu dự án');
@@ -66,7 +64,7 @@ export const getProjectAcceptanceEvidenceApi = async (projectId: string | number
 };
 
 export const getSubscriptionAcceptanceEvidenceApi = async (periodId: string | number): Promise<DownloadResponse> => {
-  const res = await fetchWithAuth(`${API_URL}/storage/subscriptions/periods/${periodId}/acceptance-evidence`);
+  const res = await fetchWithAuth(buildApiUrl(`/storage/subscriptions/periods/${periodId}/acceptance-evidence`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể lấy tài liệu nghiệm thu kỳ dịch vụ');
@@ -75,7 +73,7 @@ export const getSubscriptionAcceptanceEvidenceApi = async (periodId: string | nu
 };
 
 export const getProjectAttachmentApi = async (projectId: string | number, attachmentId: string | number): Promise<DownloadResponse> => {
-  const res = await fetchWithAuth(`${API_URL}/storage/projects/${projectId}/attachments/${attachmentId}`);
+  const res = await fetchWithAuth(buildApiUrl(`/storage/projects/${projectId}/attachments/${attachmentId}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể lấy tệp đính kèm dự án');

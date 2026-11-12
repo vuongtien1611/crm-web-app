@@ -13,7 +13,7 @@ import {
   Button,
   Tag,
   Divider,
-  message,
+  App,
 } from 'antd';
 import {
   CrownOutlined,
@@ -52,6 +52,7 @@ export const PromoteDemoteModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,7 +169,7 @@ export const PromoteDemoteModal: React.FC<Props> = ({
         </Space>
       }
       open={isOpen}
-      destroyOnClose
+      destroyOnHidden
       onCancel={onClose}
       footer={null}
       width={600}
