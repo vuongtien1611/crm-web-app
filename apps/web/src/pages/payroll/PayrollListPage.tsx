@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Card, Row, Col, Typography, Tag, Button, Space, Modal, Form, Input, DatePicker, message } from 'antd';
+import { Table, Card, Row, Col, Typography, Tag, Button, Space, Modal, Form, Input, DatePicker, App } from 'antd';
 import { BankOutlined, PlusOutlined, LockOutlined, CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { fetchPayrollPeriods, createPayrollPeriod, PayrollPeriod } from '../../api/payroll';
@@ -9,6 +9,7 @@ import { createRowNavigateHandler } from '../../utils/tableUtils';
 const { Title, Text } = Typography;
 
 export const PayrollListPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [loading, setLoading] = useState<boolean>(false);
   const [periods, setPeriods] = useState<PayrollPeriod[]>([]);

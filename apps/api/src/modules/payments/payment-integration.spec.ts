@@ -56,26 +56,28 @@ async function runPaymentIntegrationTests() {
     // FIXTURES SETUP
     // --------------------------------------------------
     const initialGrossCash = await paymentsService.calculateGrossCash();
-    const pos = await kysely.db.selectFrom('positions').select('id').executeTakeFirstOrThrow();
+    const bossPos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'BOSS').executeTakeFirstOrThrow();
+    const accPos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'ACCOUNTANT').executeTakeFirstOrThrow();
+    const salePos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'SALE').executeTakeFirstOrThrow();
 
     const [boss] = await kysely.db.insertInto('employees').values({
       employee_code: `PAY_BOSS_${Date.now()}`,
       full_name: 'Boss Accountant Manager',
-      position_id: pos.id,
+      position_id: bossPos.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [accountant] = await kysely.db.insertInto('employees').values({
       employee_code: `PAY_ACCT_${Date.now()}`,
       full_name: 'Accountant Staff',
-      position_id: pos.id,
+      position_id: accPos.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [sale] = await kysely.db.insertInto('employees').values({
       employee_code: `PAY_SALE_${Date.now()}`,
       full_name: 'Sale Representative',
-      position_id: pos.id,
+      position_id: salePos.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
@@ -342,7 +344,7 @@ async function runPaymentIntegrationTests() {
     // --------------------------------------------------
     // PAYMENT-18 & ACCEPTANCE_NOT_FULL_PAYMENT: Project acceptance alone does NOT make payment FULLY_PAID
     // --------------------------------------------------
-    const accItem = await ordersService.addOrderItem(String(order.id), { serviceId: String(webService.id), closingSaleId: String(boss.id), originalPrice: 50000000 }, String(boss.id));
+    const accItem = await ordersService.addOrderItem(String(order.id), { serviceId: String(webService.id), closingSaleId: String(sale.id), originalPrice: 50000000 }, String(boss.id));
     await ordersService.submitOrderItem(String(accItem.id), String(boss.id));
     await ordersService.approveOrderItem(String(accItem.id), String(boss.id));
 
@@ -524,6 +526,92 @@ async function runPaymentIntegrationTests() {
     // PAYMENT-28: Historical plan allocations not double-subtracted
     const receivableSp = await paymentsService.calculateReceivable(String(spItem.id));
     assert(receivableSp === 0, 'PAYMENT-28: Historical plan allocations are not double-subtracted when calculating receivable');
+
+    // --------------------------------------------------
+    // PAYMENT-29: Create one installment and allocate a confirmed payment afterward
+    // --------------------------------------------------
+    const planItem = await kysely.db
+      .selectFrom('order_items')
+      .selectAll()
+      .where('id', '=', accItem.id)
+      .executeTakeFirstOrThrow();
+    const expectedGrossDue = Number(planItem.net_service_value) + Number(planItem.vat_amount);
+    const createdPlan = await paymentsService.createSingleInstallmentPlan(
+      String(planItem.id),
+      { dueDate: '2026-11-13' },
+      String(boss.id),
+    );
+    const orderWithPaymentPlan = await ordersService.findOrderById(String(order.id));
+    const visiblePlanItem = orderWithPaymentPlan.items.find(
+      (item: any) => String(item.id) === String(planItem.id),
+    );
+    const visibleDueDate = visiblePlanItem?.payment_plan?.installments?.[0]?.due_date;
+    assert(
+      String(visibleDueDate).slice(0, 10) === '2026-11-13',
+      'PAYMENT-29A: Order detail exposes the created payment plan and due date',
+      JSON.stringify(visiblePlanItem?.payment_plan),
+    );
+    let duplicatePlanBlocked = false;
+    try {
+      await paymentsService.createSingleInstallmentPlan(
+        String(planItem.id),
+        { dueDate: '2026-11-13' },
+        String(boss.id),
+      );
+    } catch (err: any) {
+      duplicatePlanBlocked = err.message.includes('already has an active payment plan');
+    }
+    assert(duplicatePlanBlocked, 'PAYMENT-31: Duplicate active payment plan creation is blocked');
+
+    const unallocatedPayment = await paymentsService.createPayment(
+      { grossCashAmount: expectedGrossDue, paymentMethod: PaymentMethod.BANK_TRANSFER },
+      String(accountant.id),
+    );
+    await paymentsService.confirmPayment(String(unallocatedPayment.id), {}, String(boss.id));
+
+    const allocatable = await paymentsService.findAllocatableInstallments(String(unallocatedPayment.id));
+    assert(
+      allocatable.installments.length === 1 &&
+        Number(allocatable.installments[0].remaining_amount) === expectedGrossDue,
+      'PAYMENT-29: Newly created installment is offered for a confirmed, unallocated payment',
+    );
+    await paymentsService.allocateConfirmedPayment(
+      String(unallocatedPayment.id),
+      {
+        installmentId: String(createdPlan.installment.id),
+        grossAllocatedAmount: expectedGrossDue,
+      },
+      String(boss.id),
+    );
+    const paidPlanInstallment = await kysely.db
+      .selectFrom('payment_installments')
+      .selectAll()
+      .where('id', '=', createdPlan.installment.id)
+      .executeTakeFirstOrThrow();
+    const paidPlanItem = await kysely.db
+      .selectFrom('order_items')
+      .selectAll()
+      .where('id', '=', planItem.id)
+      .executeTakeFirstOrThrow();
+    assert(
+      paidPlanInstallment.status === 'PAID' && paidPlanItem.payment_status === 'FULLY_PAID',
+      'PAYMENT-30: Post-confirmation allocation updates installment and order item payment status',
+    );
+
+    let overAllocationBlocked = false;
+    try {
+      await paymentsService.allocateConfirmedPayment(
+        String(unallocatedPayment.id),
+        {
+          installmentId: String(createdPlan.installment.id),
+          grossAllocatedAmount: 1,
+        },
+        String(boss.id),
+      );
+    } catch (err: any) {
+      overAllocationBlocked = err.message.includes('exceeds');
+    }
+    assert(overAllocationBlocked, 'PAYMENT-32: Confirmed payment cannot be allocated beyond its remaining balance');
 
   } catch (err: any) {
     console.error('CRITICAL TEST EXCEPTION:', err);

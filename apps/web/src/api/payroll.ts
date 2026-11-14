@@ -79,6 +79,7 @@ export async function fetchPayrollPeriods(params?: { page?: number; limit?: numb
 export async function createPayrollPeriod(data: { periodKey: string; startDate: string; endDate: string }) {
   const res = await fetchWithAuth('/api/payroll/periods', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -88,11 +89,21 @@ export async function createPayrollPeriod(data: { periodKey: string; startDate: 
   return (await res.json()) as PayrollPeriod;
 }
 
+export interface PayrollApiError extends Error {
+  status?: number;
+}
+
+function createPayrollApiError(message: string, status: number): PayrollApiError {
+  const err = new Error(message) as PayrollApiError;
+  err.status = status;
+  return err;
+}
+
 export async function fetchPayrollPeriodById(id: string) {
   const res = await fetchWithAuth(`/api/payroll/periods/${id}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || 'Failed to fetch payroll period detail');
+    throw createPayrollApiError(errorData.message || 'Failed to fetch payroll period detail', res.status);
   }
   return (await res.json()) as PayrollPeriod;
 }
@@ -144,6 +155,7 @@ export async function lockPayrollPeriod(id: string) {
 export async function addPayrollAdjustment(periodId: string, data: { employeeId: string; amount: number; reason: string }) {
   const res = await fetchWithAuth(`/api/payroll/periods/${periodId}/adjustments`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -166,7 +178,7 @@ export async function fetchEmployeePayrollDetail(periodId: string, employeeId: s
   const res = await fetchWithAuth(`/api/payroll/periods/${periodId}/employees/${employeeId}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || 'Failed to fetch employee payroll detail');
+    throw createPayrollApiError(errorData.message || 'Failed to fetch employee payroll detail', res.status);
   }
   return (await res.json()) as EmployeePayrollDetail;
 }

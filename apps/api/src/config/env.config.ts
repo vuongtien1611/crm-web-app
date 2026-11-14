@@ -1,3 +1,5 @@
+import { Logger } from '@nestjs/common';
+
 export interface EnvValidationResult {
   isValid: boolean;
   errors: string[];
@@ -22,6 +24,16 @@ export const validateProductionEnv = (env: Record<string, any>): EnvValidationRe
     if (!dbUser) {
       errors.push('Production requires DATABASE_USER.');
     }
+  }
+
+  // 1.1 Database connection pool bounds validation
+  const poolMax = env.database?.poolMax;
+  if (poolMax !== undefined && (isNaN(poolMax) || poolMax < 1 || poolMax > 100)) {
+    errors.push('DATABASE_POOL_MAX must be a valid integer between 1 and 100.');
+  }
+  const poolMin = env.database?.poolMin;
+  if (poolMin !== undefined && (isNaN(poolMin) || poolMin < 0 || (typeof poolMax === 'number' && !isNaN(poolMax) && poolMin > poolMax))) {
+    errors.push('DATABASE_POOL_MIN must be a non-negative integer less than or equal to DATABASE_POOL_MAX.');
   }
 
   // 2. Redis validation
@@ -86,6 +98,10 @@ export const envConfig = () => {
       user: process.env.DATABASE_USER || 'postgres',
       password: process.env.DATABASE_PASSWORD || 'postgres_secret_dev',
       ssl: process.env.DATABASE_SSL === 'true',
+      poolMax: parseInt(process.env.DATABASE_POOL_MAX || '20', 10),
+      poolMin: parseInt(process.env.DATABASE_POOL_MIN || '2', 10),
+      idleTimeoutMillis: parseInt(process.env.DATABASE_POOL_IDLE_TIMEOUT_MS || '30000', 10),
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_POOL_CONN_TIMEOUT_MS || '5000', 10),
     },
     redis: {
       url: process.env.REDIS_URL,
@@ -125,7 +141,7 @@ export const envConfig = () => {
     if (!validation.isValid) {
       const formattedErrors = validation.errors.map((err) => `  - ${err}`).join('\n');
       const errorMessage = `\n==================================================\n🚨 [FATAL] PRODUCTION ENVIRONMENT HARDENING FAILED:\n==================================================\n${formattedErrors}\n\nTerminating application immediately (fail-fast rule).\n==================================================\n`;
-      console.error(errorMessage);
+      new Logger('EnvConfig').error(errorMessage);
       throw new Error('Production environment validation failed.');
     }
   }

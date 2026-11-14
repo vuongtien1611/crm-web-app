@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { KyselyService } from '../../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../../database/kysely.service';
 
 @Injectable()
 export class KpiEvaluationService {
@@ -21,11 +21,11 @@ export class KpiEvaluationService {
   /**
    * Sale KPI evaluation on confirmed Payment Allocation
    */
-  async evaluatePaymentAllocationKpi(trx: any, allocationId: string, actorEmployeeId: string) {
+  async evaluatePaymentAllocationKpi(trx: CrmTransaction, allocationId: string, actorEmployeeId: string) {
     const alloc = await trx
       .selectFrom('payment_allocations')
       .innerJoin('payments', 'payments.id', 'payment_allocations.payment_id')
-      .where('payment_allocations.id', '=', allocationId as any)
+      .where('payment_allocations.id', '=', allocationId)
       .select([
         'payment_allocations.id',
         'payment_allocations.closing_sale_id',
@@ -86,11 +86,11 @@ export class KpiEvaluationService {
   /**
    * Dev KPI evaluation on Project Acceptance
    */
-  async evaluateProjectAcceptanceKpi(trx: any, projectId: string, actorEmployeeId: string) {
+  async evaluateProjectAcceptanceKpi(trx: CrmTransaction, projectId: string, actorEmployeeId: string) {
     const project = await trx
       .selectFrom('projects')
       .selectAll()
-      .where('id', '=', projectId as any)
+      .where('id', '=', projectId)
       .executeTakeFirst();
 
     if (!project) return;
@@ -197,11 +197,11 @@ export class KpiEvaluationService {
   /**
    * SEO KPI evaluation on SEO Article
    */
-  async evaluateSeoArticleKpi(trx: any, articleId: string, actorEmployeeId: string) {
+  async evaluateSeoArticleKpi(trx: CrmTransaction, articleId: string, actorEmployeeId: string) {
     const article = await trx
       .selectFrom('seo_articles')
       .selectAll()
-      .where('id', '=', articleId as any)
+      .where('id', '=', articleId)
       .executeTakeFirst();
 
     if (!article) return;

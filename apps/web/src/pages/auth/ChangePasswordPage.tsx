@@ -113,6 +113,7 @@ export const ChangePasswordPage: React.FC = () => {
               prefix={<LockOutlined style={{ color: 'var(--vmax-text-muted)' }} />}
               placeholder="Nhập mật khẩu hiện tại"
               size="large"
+              autoComplete="current-password"
             />
           </Form.Item>
 
@@ -129,6 +130,7 @@ export const ChangePasswordPage: React.FC = () => {
               prefix={<LockOutlined style={{ color: 'var(--vmax-text-muted)' }} />}
               placeholder="Tối thiểu 8 ký tự"
               size="large"
+              autoComplete="new-password"
             />
           </Form.Item>
 
@@ -153,6 +155,7 @@ export const ChangePasswordPage: React.FC = () => {
               prefix={<LockOutlined style={{ color: 'var(--vmax-text-muted)' }} />}
               placeholder="Nhập lại mật khẩu mới"
               size="large"
+              autoComplete="new-password"
             />
           </Form.Item>
 

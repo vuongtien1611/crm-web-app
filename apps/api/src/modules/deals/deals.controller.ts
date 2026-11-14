@@ -18,9 +18,11 @@ import { MarkLostDto } from './dto/mark-lost.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { TeamsService } from '../teams/teams.service';
+import { PermissionsGuard } from '../rbac/guards/permissions.guard';
+import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 
 @Controller('deals')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DealsController {
   constructor(
     private readonly dealsService: DealsService,
@@ -119,18 +121,44 @@ export class DealsController {
   }
 
   @Post(':id/assign')
-  async assignDeal(@Param('id') id: string, @Body() dto: AssignDealDto) {
+  @RequirePermissions('LEAD_ASSIGN')
+  async assignDeal(@Param('id') id: string, @Body() dto: AssignDealDto, @CurrentUser() user?: any) {
+    const roles: string[] = user?.roles || [];
+    const isElevated = roles.includes('ADMIN') || roles.includes('BOSS') || roles.includes('SUPER_ADMIN');
+    const isSalesLeader = roles.includes('SALES_TEAM_LEADER');
+    const permissions: string[] = user?.permissions || [];
+
+    if (!isElevated && !isSalesLeader && !permissions.includes('DEAL_ASSIGN') && !permissions.includes('LEAD_ASSIGN')) {
+      throw new ForbiddenException('Nhân viên kinh doanh không có quyền phân công lại Cơ hội (Deal)');
+    }
+
+    if (isSalesLeader && !isElevated && user?.employeeId) {
+      const teamMemberIds = await this.resolveTeamMemberIds(String(user.employeeId));
+      if (!teamMemberIds.includes(String(dto.toSaleId)) && String(dto.toSaleId) !== String(user.employeeId)) {
+        throw new ForbiddenException('Trưởng nhóm kinh doanh chỉ được phân công Deal cho thành viên trong nhóm phụ trách');
+      }
+    }
+
     return this.dealsService.assignDeal(id, dto);
   }
 
   @Post(':id/set-closing-sale')
-  async setClosingSale(@Param('id') id: string, @Body() dto: SetClosingSaleDto) {
+  async setClosingSale(@Param('id') id: string, @Body() dto: SetClosingSaleDto, @CurrentUser() user?: any) {
+    const roles: string[] = user?.roles || [];
+    const isElevated = roles.includes('ADMIN') || roles.includes('BOSS') || roles.includes('SUPER_ADMIN');
+    const isSalesLeader = roles.includes('SALES_TEAM_LEADER');
+    const permissions: string[] = user?.permissions || [];
+
+    if (!isElevated && !isSalesLeader && !permissions.includes('DEAL_SET_CLOSING_SALE') && !permissions.includes('LEAD_ASSIGN')) {
+      throw new ForbiddenException('Nhân viên kinh doanh không có quyền thiết lập Sale chốt hợp đồng');
+    }
+
     return this.dealsService.setClosingSale(id, dto);
   }
 
   @Post(':id/win')
-  async markWon(@Param('id') id: string) {
-    return this.dealsService.markWon(id);
+  async markWon(@Param('id') id: string, @CurrentUser() user?: any) {
+    return this.dealsService.markWon(id, user);
   }
 
   @Post(':id/lose')

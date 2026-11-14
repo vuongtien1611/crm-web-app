@@ -6,26 +6,63 @@ on:
       - main
       - master
       - staging
+      - 'feature/**'
   pull_request:
     branches:
       - main
       - master
       - staging
+      - 'feature/**'
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build, Lint & Canonical E2E Test Suite
+  # ============================================================================
+  # JOB 1: MONOREPO BUILD & CONFIG VERIFICATION
+  # ============================================================================
+  build-and-lint:
+    name: Monorepo Build & TypeScript Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+          run_install: false
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Monorepo Build (TypeScript Verification)
+        run: pnpm build
+
+      - name: Environment Config & Hardening Verification
+        run: pnpm --filter api test:env
+
+  # ============================================================================
+  # JOB 2: PARALLEL INTEGRATION TEST MATRIX
+  # ============================================================================
+  integration-tests:
+    name: ${{ matrix.suite.name }}
+    needs: build-and-lint
     runs-on: ubuntu-latest
 
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: crm_db
+          POSTGRES_DB: crm_test_db
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres_secret_dev
         ports:
@@ -46,6 +83,23 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: 'Auth & Security Suite'
+            cmd: 'pnpm --filter api test:auth'
+          - name: 'Core CRM Suite (Leads, Deals, Orders, Projects)'
+            cmd: 'pnpm --filter api test:lead && pnpm --filter api test:deal && pnpm --filter api test:order && pnpm --filter api test:project'
+          - name: 'Finance & Payroll Suite (Payments, Commissions, Payroll, Expenses, Subscriptions)'
+            cmd: 'pnpm --filter api test:payment && pnpm --filter api test:commission && pnpm --filter api test:payroll && pnpm --filter api test:expense && pnpm --filter api test:recurring'
+          - name: 'HR, Organization & Teams Suite'
+            cmd: 'pnpm --filter api test:account && pnpm --filter api test:boss-accounts && pnpm --filter api test:org-chart && pnpm --filter api test:team && pnpm --filter api test:team-autogen'
+          - name: 'Operations, KPI & Background Jobs Suite'
+            cmd: 'pnpm --filter api test:kpi && pnpm --filter api test:daily-report && pnpm --filter api test:notification && pnpm --filter api test:storage && pnpm --filter api test:jobs && pnpm --filter api test:export && pnpm --filter api test:dynamic-options'
+          - name: 'Canonical E2E Concurrency Suite'
+            cmd: 'pnpm --filter api test:phase-q-e2e'
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -53,7 +107,7 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@v4
         with:
-          version: 8.15.1
+          version: 9.15.4
           run_install: false
 
       - name: Setup Node.js 20
@@ -65,47 +119,37 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Monorepo Build (TypeScript Verification)
-        run: pnpm build
+      - name: Build Shared Package
+        run: pnpm --filter shared build
 
       - name: Apply Database Migrations (Safe Runner Verification)
         env:
           DATABASE_HOST: localhost
           DATABASE_PORT: 5432
-          DATABASE_NAME: crm_db
+          DATABASE_NAME: crm_test_db
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres_secret_dev
         run: pnpm db:migrate
 
-      - name: Run Auth Integration Tests
+      - name: Seed Master Reference Data (Isolated Test DB Only)
         env:
           DATABASE_HOST: localhost
           DATABASE_PORT: 5432
-          DATABASE_NAME: crm_db
+          DATABASE_NAME: crm_test_db
+          TEST_DATABASE_NAME: crm_test_db
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres_secret_dev
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-        run: pnpm --filter api test:auth
+        run: pnpm --filter api db:seed:master
 
-      - name: Run KPI Integration Tests
+      - name: Run Test Suite
         env:
+          NODE_ENV: test
           DATABASE_HOST: localhost
           DATABASE_PORT: 5432
-          DATABASE_NAME: crm_db
+          DATABASE_NAME: crm_test_db
+          TEST_DATABASE_NAME: crm_test_db
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres_secret_dev
           REDIS_HOST: localhost
           REDIS_PORT: 6379
-        run: pnpm --filter api test:kpi
-
-      - name: Run Canonical Phase Q E2E & Concurrency Suite
-        env:
-          DATABASE_HOST: localhost
-          DATABASE_PORT: 5432
-          DATABASE_NAME: crm_db
-          DATABASE_USER: postgres
-          DATABASE_PASSWORD: postgres_secret_dev
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-        run: pnpm --filter api test:phase-q-e2e
+        run: ${{ matrix.suite.cmd }}

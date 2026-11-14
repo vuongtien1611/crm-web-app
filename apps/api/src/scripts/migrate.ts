@@ -52,8 +52,7 @@ export async function runMigrations() {
       `);
       const isInitialized = tableCheck.rows[0]?.exists;
 
-      // Locate project root database directory
-      const baseDir = path.resolve(__dirname, '../../../../database');
+      const baseDir = resolveDatabaseDirectory();
       const schemaPath = path.join(baseDir, 'crm_order_schema.sql');
       const migrationsDir = path.join(baseDir, 'migrations');
 
@@ -135,6 +134,23 @@ export async function runMigrations() {
   }
 
   console.log('==================================================');
+}
+
+export function resolveDatabaseDirectory(): string {
+  const configuredDir = process.env.DATABASE_MIGRATIONS_DIR;
+  if (configuredDir) {
+    return path.resolve(configuredDir);
+  }
+
+  const candidates = [
+    path.resolve(__dirname, '../../../../database'),
+    path.resolve(process.cwd(), 'database'),
+    path.resolve(process.cwd(), '../../database'),
+  ];
+
+  return candidates.find((candidate) =>
+    fs.existsSync(path.join(candidate, 'crm_order_schema.sql')),
+  ) || candidates[0];
 }
 
 if (require.main === module) {

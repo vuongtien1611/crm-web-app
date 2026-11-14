@@ -182,14 +182,8 @@ export class DashboardService {
         sql<number>`count(id)`.as('count'),
         sql<number>`coalesce(sum(gross_amount_due), 0)`.as('amount'),
       ])
-      .where((eb) =>
-        eb.or([
-          eb('status', '=', 'OVERDUE'),
-          eb.and([
-            eb('status', 'in', ['PENDING', 'PARTIALLY_PAID']),
-            eb('due_date', '<', sql<Date>`CURRENT_DATE`),
-          ]),
-        ]),
+      .where(
+        sql<boolean>`status = 'OVERDUE' OR (status IN ('PENDING', 'PARTIALLY_PAID') AND due_date < CURRENT_DATE)`,
       )
       .executeTakeFirst();
     const installmentsOverdueCount = Number(overdueRes?.count || 0);
@@ -285,7 +279,7 @@ export class DashboardService {
     for (const row of teamsRes) {
       const cnt = Number(row.count);
       totalTeams += cnt;
-      teamsBreakdown[row.department] = cnt;
+      if (row.department) teamsBreakdown[row.department] = cnt;
     }
 
     const kpiRes = await db
@@ -461,14 +455,8 @@ export class DashboardService {
         'pi.gross_amount_due',
         'pi.status',
       ])
-      .where((eb) =>
-        eb.or([
-          eb('pi.status', '=', 'OVERDUE'),
-          eb.and([
-            eb('pi.status', 'in', ['PENDING', 'PARTIALLY_PAID']),
-            eb('pi.due_date', '<', sql<Date>`CURRENT_DATE`),
-          ]),
-        ]),
+      .where(
+        sql<boolean>`pi.status = 'OVERDUE' OR (pi.status IN ('PENDING', 'PARTIALLY_PAID') AND pi.due_date < CURRENT_DATE)`,
       )
       .where('plan.status', '=', 'APPROVED')
       .orderBy('pi.due_date', 'asc')

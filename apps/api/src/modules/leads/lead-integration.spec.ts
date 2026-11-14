@@ -34,8 +34,12 @@ async function runLeadIntegrationTests() {
   }
 
   // Fixtures Setup
-  const pos = await db.selectFrom('positions').select('id').executeTakeFirst();
-  if (!pos) throw new Error('No positions found in DB');
+  const pos = await db
+    .selectFrom('positions')
+    .select('id')
+    .where('code', '=', 'SALE')
+    .executeTakeFirst();
+  if (!pos) throw new Error('No SALE position found in DB');
 
   // Create test employee 1 (Sale)
   const empCode1 = `EMP-TEST-SALE-${Date.now()}`;
@@ -131,6 +135,33 @@ async function runLeadIntegrationTests() {
       );
     } catch (e: any) {
       assert(false, 'LEAD-02: Create Manual Lead', e.message);
+    }
+
+    // LEAD-02A: Update lead contact information and clear optional fields
+    try {
+      const updated = await leadsService.updateLeadInfo(String(createdLead1.id), {
+        fullName: 'Updated Organic Customer',
+        phone: '0987000111',
+        email: 'updated@customer.com',
+      });
+      assert(
+        updated.full_name === 'Updated Organic Customer' &&
+          updated.phone === '0987000111' &&
+          updated.email === 'updated@customer.com',
+        'LEAD-02A: Update lead contact information',
+      );
+
+      const cleared = await leadsService.updateLeadInfo(String(createdLead1.id), {
+        fullName: 'Updated Organic Customer',
+        phone: null,
+        email: null,
+      });
+      assert(
+        cleared.phone === null && cleared.email === null,
+        'LEAD-02B: Clear optional lead contact information',
+      );
+    } catch (e: any) {
+      assert(false, 'LEAD-02A/B: Update lead contact information', e.message);
     }
 
     // LEAD-03: Qualify Lead to NOT_POTENTIAL without reason fails

@@ -44,8 +44,8 @@ async function seedBrowserDailyReportsUsers() {
     email: string,
     employeeCode: string,
     fullName: string,
-    roleId: number,
-    teamId: number,
+    roleId: string,
+    teamId: string,
     isLeader: boolean,
   ) {
     let user = await db.selectFrom('users').selectAll().where('username', '=', username).executeTakeFirst();

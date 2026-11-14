@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Card, Row, Col, Typography, Tag, Statistic, Space, Select, DatePicker, message, Modal, Descriptions, Button } from 'antd';
+import { Table, Card, Row, Col, Typography, Tag, Statistic, Space, Select, DatePicker, Modal, Descriptions, Button, App } from 'antd';
 import { TrophyOutlined, FileTextOutlined, DollarOutlined, SolutionOutlined, EyeOutlined, UserOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { fetchKpiEvents, fetchEmployeeKpiSummary, KpiEventItem, KpiSummary } from '../../api/kpi';
 import { getKpiSourceTypeLabel, formatCurrency, formatDate, formatDateTime } from '../../constants/labels';
@@ -9,6 +9,7 @@ import { createRowActionHandler } from '../../utils/tableUtils';
 const { Title, Text } = Typography;
 
 export const KpiDashboardPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [loading, setLoading] = useState<boolean>(false);
   const [events, setEvents] = useState<KpiEventItem[]>([]);

@@ -36,7 +36,7 @@ async function runOrderIntegrationTests() {
 
   try {
     // 0. Setup Fixtures
-    const pos = await kysely.db.selectFrom('positions').select('id').executeTakeFirst();
+    const pos = await kysely.db.selectFrom('positions').select('id').where('code', '=', 'SALE').executeTakeFirst();
     if (!pos) throw new Error('No position found');
 
     const [sale1] = await kysely.db
@@ -310,6 +310,180 @@ async function runOrderIntegrationTests() {
     }
 
     // --------------------------------------------------
+    // ORDER-23: Edit DRAFT OrderItem (Service, Price, Discount, Start Date, End Date)
+    // --------------------------------------------------
+    try {
+      await ordersService.updateOrderItem(
+        item2Id,
+        {
+          originalPrice: 25000000,
+          discountAmount: 5000000,
+          startDate: '2026-10-10',
+          endDate: '2026-11-10',
+        },
+        testSale1Id,
+      );
+
+      const checkDetail = await ordersService.findOrderById(testOrderId);
+      const reloadedItem = checkDetail.items.find((i) => String(i.id) === item2Id);
+
+      if (
+        reloadedItem &&
+        Number(reloadedItem.original_price) === 25000000 &&
+        Number(reloadedItem.discount_amount) === 5000000 &&
+        Number(reloadedItem.net_service_value) === 20000000 &&
+        reloadedItem.start_date &&
+        reloadedItem.end_date
+      ) {
+        console.log('✅ PASS: ORDER-23: Edit DRAFT OrderItem (Price, Discount, Dates updated)');
+        passed++;
+      } else {
+        throw new Error(`Failed to update order item correctly: ${JSON.stringify(reloadedItem)}`);
+      }
+    } catch (err: any) {
+      console.error('❌ FAIL: ORDER-23: Edit DRAFT OrderItem', err.message);
+      failed++;
+    }
+
+    // --------------------------------------------------
+    // ORDER-24: Validate Invalid Dates (End Date < Start Date throws)
+    // --------------------------------------------------
+    try {
+      await ordersService.updateOrderItem(
+        item2Id,
+        {
+          startDate: '2026-12-01',
+          endDate: '2026-10-01',
+        },
+        testSale1Id,
+      );
+      console.error('❌ FAIL: ORDER-24: Should reject End Date < Start Date');
+      failed++;
+    } catch (err: any) {
+      if (err.message?.includes('Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu')) {
+        console.log('✅ PASS: ORDER-24: Rejected invalid date range (End Date < Start Date)');
+        passed++;
+      } else {
+        console.error('❌ FAIL: ORDER-24: Unexpected error:', err.message);
+        failed++;
+      }
+    }
+
+    // --------------------------------------------------
+    // ORDER-25: Fetch Sales Reps without EMPLOYEE_READ
+    // --------------------------------------------------
+    try {
+      const salesReps = await ordersService.getActiveSalesReps();
+      if (Array.isArray(salesReps) && salesReps.length > 0) {
+        console.log('✅ PASS: ORDER-25: Get Active Sales Reps successfully');
+        passed++;
+      } else {
+        throw new Error('Expected non-empty list of active sales reps');
+      }
+    } catch (err: any) {
+      console.error('❌ FAIL: ORDER-25: Get Active Sales Reps', err.message);
+      failed++;
+    }
+
+    // --------------------------------------------------
+    // ORDER-27: Create new Service via createService
+    // --------------------------------------------------
+    try {
+      const customServiceName = `Dịch vụ AI Automation ${Date.now()}`;
+      const newService = await ordersService.createService({
+        name: customServiceName,
+        serviceType: 'PROJECT',
+        defaultPrice: 18000000,
+      });
+
+      if (newService && newService.id && newService.name === customServiceName) {
+        console.log('✅ PASS: ORDER-27: Create new Service via createService');
+        passed++;
+      } else {
+        throw new Error(`Failed to create service properly: ${JSON.stringify(newService)}`);
+      }
+    } catch (err: any) {
+      console.error('❌ FAIL: ORDER-27: Create new Service', err.message);
+      failed++;
+    }
+
+    // --------------------------------------------------
+    // ORDER-28: Add OrderItem with brand new service name (auto-created on the fly)
+    // --------------------------------------------------
+    let dynamicItem: any = null;
+    try {
+      const dynamicServiceName = `Custom Mobile App ${Date.now()}`;
+      dynamicItem = await ordersService.addOrderItem(
+        testOrderId,
+        {
+          serviceId: `__NEW__:${dynamicServiceName}`,
+          closingSaleId: testSale1Id,
+          originalPrice: 45000000,
+          discountAmount: 5000000,
+          startDate: '2026-11-01',
+          endDate: '2026-12-31',
+        },
+        testSale1Id,
+      );
+
+      const dynamicOrder = await ordersService.findOrderById(testOrderId);
+      const foundItem = dynamicOrder.items.find((i: any) => String(i.id) === String(dynamicItem.id));
+
+      if (
+        foundItem &&
+        foundItem.service_name === dynamicServiceName &&
+        Number(foundItem.original_price) === 45000000 &&
+        Number(foundItem.net_service_value) === 40000000 &&
+        foundItem.start_date &&
+        foundItem.end_date
+      ) {
+        console.log('✅ PASS: ORDER-28: Add OrderItem with auto-created service name and dates');
+        passed++;
+      } else {
+        throw new Error(`Order item was not added with auto-created service correctly: ${JSON.stringify(foundItem)}`);
+      }
+    } catch (err: any) {
+      console.error('❌ FAIL: ORDER-28: Add OrderItem with auto-created service', err.message);
+      failed++;
+    }
+
+    // --------------------------------------------------
+    // ORDER-29: Update OrderItem with another new service name (auto-created on the fly)
+    // --------------------------------------------------
+    try {
+      if (dynamicItem) {
+        const switchedServiceName = `Custom Cloud DevOps ${Date.now()}`;
+        await ordersService.updateOrderItem(
+          String(dynamicItem.id),
+          {
+            serviceId: switchedServiceName,
+            originalPrice: 50000000,
+            discountAmount: 10000000,
+          },
+          testSale1Id,
+        );
+
+        const dynamicOrderAfter = await ordersService.findOrderById(testOrderId);
+        const foundItemAfter = dynamicOrderAfter.items.find((i: any) => String(i.id) === String(dynamicItem.id));
+
+        if (
+          foundItemAfter &&
+          foundItemAfter.service_name === switchedServiceName &&
+          Number(foundItemAfter.original_price) === 50000000 &&
+          Number(foundItemAfter.net_service_value) === 40000000
+        ) {
+          console.log('✅ PASS: ORDER-29: Update OrderItem with newly typed service name');
+          passed++;
+        } else {
+          throw new Error(`Order item service was not updated correctly: ${JSON.stringify(foundItemAfter)}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('❌ FAIL: ORDER-29: Update OrderItem with newly typed service name', err.message);
+      failed++;
+    }
+
+    // --------------------------------------------------
     // ORDER-12: Submit OrderItem (DRAFT -> PENDING_APPROVAL)
     // --------------------------------------------------
     try {
@@ -323,6 +497,27 @@ async function runOrderIntegrationTests() {
     } catch (err: any) {
       console.error('❌ FAIL: ORDER-12: Submit OrderItem', err.message);
       failed++;
+    }
+
+    // --------------------------------------------------
+    // ORDER-26: Cannot directly edit non-DRAFT OrderItem
+    // --------------------------------------------------
+    try {
+      await ordersService.updateOrderItem(
+        item2Id,
+        { originalPrice: 30000000 },
+        testSale1Id,
+      );
+      console.error('❌ FAIL: ORDER-26: Non-draft item should not be directly editable');
+      failed++;
+    } catch (err: any) {
+      if (err.message?.includes('Chỉ có thể chỉnh sửa dịch vụ ở trạng thái Nháp')) {
+        console.log('✅ PASS: ORDER-26: Blocked editing non-DRAFT OrderItem');
+        passed++;
+      } else {
+        console.error('❌ FAIL: ORDER-26: Unexpected error:', err.message);
+        failed++;
+      }
     }
 
     // --------------------------------------------------

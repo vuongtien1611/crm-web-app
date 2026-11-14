@@ -38,40 +38,42 @@ async function runProjectIntegrationTests() {
     // --------------------------------------------------
     // FIXTURES SETUP
     // --------------------------------------------------
-    const pos = await kysely.db.selectFrom('positions').select('id').executeTakeFirstOrThrow();
+    const posBoss = (await kysely.db.selectFrom('positions').select('id').where('code', 'in', ['BOSS', 'SALE']).executeTakeFirst()) || (await kysely.db.selectFrom('positions').select('id').executeTakeFirstOrThrow());
+    const posDev = (await kysely.db.selectFrom('positions').select('id').where('code', '=', 'DEV').executeTakeFirst()) || posBoss;
+    const posSeo = (await kysely.db.selectFrom('positions').select('id').where('code', '=', 'SEO').executeTakeFirst()) || posBoss;
 
     const [boss] = await kysely.db.insertInto('employees').values({
       employee_code: `PROJ_BOSS_${Date.now()}`,
       full_name: 'Boss Manager',
-      position_id: pos.id,
+      position_id: posBoss.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [dev1] = await kysely.db.insertInto('employees').values({
       employee_code: `PROJ_DEV1_${Date.now()}`,
       full_name: 'Dev One',
-      position_id: pos.id,
+      position_id: posDev.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [dev2] = await kysely.db.insertInto('employees').values({
       employee_code: `PROJ_DEV2_${Date.now()}`,
       full_name: 'Dev Two',
-      position_id: pos.id,
+      position_id: posDev.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [dev3] = await kysely.db.insertInto('employees').values({
       employee_code: `PROJ_DEV3_${Date.now()}`,
       full_name: 'Dev Three',
-      position_id: pos.id,
+      position_id: posDev.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [seo1] = await kysely.db.insertInto('employees').values({
       employee_code: `PROJ_SEO1_${Date.now()}`,
       full_name: 'SEO Specialist One',
-      position_id: pos.id,
+      position_id: posSeo.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
@@ -346,14 +348,14 @@ async function runProjectIntegrationTests() {
     const [devTlEmployee] = await kysely.db.insertInto('employees').values({
       employee_code: `TL_DEV_${Date.now()}`,
       full_name: 'Dev Team Leader',
-      position_id: pos.id,
+      position_id: posDev.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 
     const [seoTlEmployee] = await kysely.db.insertInto('employees').values({
       employee_code: `TL_SEO_${Date.now()}`,
       full_name: 'SEO Team Leader',
-      position_id: pos.id,
+      position_id: posSeo.id,
       status: 'ACTIVE',
     }).returningAll().execute();
 

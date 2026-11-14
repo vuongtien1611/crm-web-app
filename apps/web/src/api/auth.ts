@@ -1,6 +1,7 @@
 import { useAuthStore, UserProfile } from '../store/authStore';
+import { API_BASE_URL, buildApiUrl } from './config';
 
-const API_BASE_URL = '/api';
+export { API_BASE_URL, buildApiUrl };
 
 export interface LoginResponse {
   user: UserProfile;
@@ -10,7 +11,7 @@ export interface LoginResponse {
 let refreshPromise: Promise<LoginResponse> | null = null;
 
 export async function loginApi(identifier: string, password: string): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  const response = await fetch(buildApiUrl('/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier, password }),
@@ -40,7 +41,7 @@ export async function refreshApi(): Promise<LoginResponse> {
     try {
       // NOTE: Fastify returns 400 Bad Request if Content-Type: application/json is sent with an empty body.
       // Therefore, do NOT set Content-Type header on empty POST requests.
-      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      const response = await fetch(buildApiUrl('/auth/refresh'), {
         method: 'POST',
         credentials: 'include',
       });
@@ -78,10 +79,9 @@ export async function logoutApi(): Promise<void> {
   try {
     localStorage.removeItem('crm_has_session');
   } catch {}
-  await fetch(`${API_BASE_URL}/auth/logout`, {
+  await fetch(buildApiUrl('/auth/logout'), {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     credentials: 'include',
@@ -90,26 +90,60 @@ export async function logoutApi(): Promise<void> {
   useAuthStore.getState().clearAuth();
 }
 
+export function isTokenExpiringSoon(token: string | null, bufferSeconds = 60): boolean {
+  if (!token) return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return true;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join(''),
+    );
+    const parsed = JSON.parse(jsonPayload);
+    if (typeof parsed.exp !== 'number') return false;
+    const now = Math.floor(Date.now() / 1000);
+    return parsed.exp - now <= bufferSeconds;
+  } catch {
+    return true;
+  }
+}
+
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  const targetUrl = buildApiUrl(url);
+  const hasSession = typeof window !== 'undefined' && localStorage.getItem('crm_has_session') === 'true';
   let token = useAuthStore.getState().accessToken;
+
+  // Proactive token refresh if user has session but token is missing or expiring within 60s
+  if (hasSession && isTokenExpiringSoon(token, 60)) {
+    try {
+      const refreshed = await refreshApi();
+      token = refreshed.accessToken;
+    } catch {
+      token = useAuthStore.getState().accessToken;
+    }
+  }
 
   const headers = new Headers(options.headers || {});
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  let response = await fetch(url, {
+  let response = await fetch(targetUrl, {
     ...options,
     headers,
     credentials: 'include',
   });
 
-  // Handle 401 Unauthorized -> Attempt token refresh
-  if (response.status === 401) {
+  // Reactive fallback: Handle 401 Unauthorized if token was revoked server-side
+  if (response.status === 401 && hasSession) {
     try {
       const refreshed = await refreshApi();
       headers.set('Authorization', `Bearer ${refreshed.accessToken}`);
-      response = await fetch(url, {
+      response = await fetch(targetUrl, {
         ...options,
         headers,
         credentials: 'include',
@@ -123,7 +157,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 }
 
 export async function changePasswordApi(currentPassword: string, newPassword: string): Promise<{ message: string }> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/auth/change-password`, {
+  const response = await fetchWithAuth(buildApiUrl('/auth/change-password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newPassword }),

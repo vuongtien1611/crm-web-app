@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { KyselyService } from '../../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../../database/kysely.service';
 import { CommissionPolicyMatcherService } from './commission-policy-matcher.service';
 
 @Injectable()
@@ -15,11 +15,11 @@ export class CommissionEligibilityService {
    * Re-evaluates commission eligibility for an OrderItem inside database transaction `trx`.
    * Downstream caller is responsible for transaction scope.
    */
-  async evaluateOrderItemCommissions(trx: any, orderItemId: string, actorEmployeeId?: string) {
+  async evaluateOrderItemCommissions(trx: CrmTransaction, orderItemId: string, actorEmployeeId?: string) {
     const item = await trx
       .selectFrom('order_items')
       .selectAll()
-      .where('id', '=', orderItemId as any)
+      .where('id', '=', orderItemId)
       .executeTakeFirst();
 
     if (!item) return;

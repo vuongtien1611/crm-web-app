@@ -8,6 +8,7 @@ import { KyselyService } from '../../database/kysely.service';
 import { sql } from 'kysely';
 import { MoveMemberDto } from './dto/move-member.dto';
 import { ChangeLeaderDto } from './dto/change-leader.dto';
+import { SessionService } from '../auth/services/session.service';
 
 export interface OrgEmployeeCard {
   employeeId: string;
@@ -38,6 +39,21 @@ export interface OrgTeamData {
   memberCount: number;
 }
 
+interface ActiveMembershipRow {
+  membership_id: string;
+  team_id: string;
+  is_leader: boolean;
+  joined_at: string;
+  employee_id: string;
+  employee_code: string;
+  full_name: string;
+  phone: string | null;
+  employee_status: string;
+  position_code: string | null;
+  position_name: string | null;
+  user_id: string | null;
+}
+
 export interface OrgChartResponse {
   boss: OrgEmployeeCard | null;
   teams: OrgTeamData[];
@@ -49,7 +65,10 @@ export interface OrgChartResponse {
 export class OrganizationChartService {
   private readonly logger = new Logger(OrganizationChartService.name);
 
-  constructor(private readonly kysely: KyselyService) {}
+  constructor(
+    private readonly kysely: KyselyService,
+    private readonly sessionService: SessionService,
+  ) {}
 
   // -------------------------------------------------------------
   // GET ORGANIZATION CHART DATA
@@ -80,7 +99,7 @@ export class OrganizationChartService {
               .selectFrom('user_roles')
               .innerJoin('roles', 'roles.id', 'user_roles.role_id')
               .select('user_roles.user_id')
-              .whereRef('user_roles.user_id', '=', 'users.id')
+              .whereRef('user_roles.user_id', '=', sql.ref('users.id'))
               .where('roles.code', '=', 'BOSS'),
           ),
         ]),
@@ -136,7 +155,7 @@ export class OrganizationChartService {
     const teamIds = teamRows.map((t) => t.id);
 
     // 4. Query all active team memberships
-    let activeMemberships: any[] = [];
+    let activeMemberships: ActiveMembershipRow[] = [];
     if (teamIds.length > 0) {
       activeMemberships = await db
         .selectFrom('team_memberships')
@@ -306,13 +325,98 @@ export class OrganizationChartService {
   }
 
   // -------------------------------------------------------------
+  // GET EMPLOYEE WORKLOAD (PRE-TRANSFER WARNING)
+  // -------------------------------------------------------------
+  async getEmployeeWorkload(employeeId: string | number) {
+    const db = this.kysely.db;
+
+    // 1. Employee existence check
+    const employee = await db
+      .selectFrom('employees')
+      .selectAll()
+      .where('id', '=', employeeId as any)
+      .executeTakeFirst();
+
+    if (!employee) {
+      throw new NotFoundException(`Nhân viên #${employeeId} không tồn tại`);
+    }
+
+    // 2. Active project assignments
+    const activeProjects = await db
+      .selectFrom('project_assignments as pa')
+      .innerJoin('projects as p', 'p.id', 'pa.project_id')
+      .select(['p.id', 'p.project_name', 'pa.assignment_type'])
+      .where('pa.employee_id', '=', employeeId as any)
+      .where('pa.is_active', '=', true)
+      .where('pa.unassigned_at', 'is', null)
+      .execute();
+
+    // 3. Active project tasks
+    const activeTasks = await db
+      .selectFrom('project_tasks as pt')
+      .innerJoin('project_milestones as pm', 'pm.id', 'pt.milestone_id')
+      .innerJoin('projects as p', 'p.id', 'pm.project_id')
+      .select(['pt.id', 'pt.title', 'pt.status', 'p.project_name'])
+      .where('pt.assigned_to_employee_id', '=', employeeId as any)
+      .where('pt.status', 'in', ['TODO', 'IN_PROGRESS', 'BLOCKED'])
+      .execute();
+
+    // 4. Active deals (if sales)
+    const activeDeals = await db
+      .selectFrom('deals')
+      .select(['id', 'deal_name', 'status', 'expected_value'])
+      .where('assigned_sale_id', '=', employeeId as any)
+      .where('status', 'not in', ['WON', 'LOST'])
+      .execute();
+
+    // 5. Current team membership & leadership status
+    const currentMembership = await db
+      .selectFrom('team_memberships')
+      .select(['team_id', 'is_leader'])
+      .where('employee_id', '=', employeeId as any)
+      .where(sql`effective_range @> NOW()` as any)
+      .executeTakeFirst();
+
+    return {
+      employeeId: String(employeeId),
+      fullName: employee.full_name,
+      employeeCode: employee.employee_code,
+      isLeader: !!currentMembership?.is_leader,
+      currentTeamId: currentMembership ? String(currentMembership.team_id) : null,
+      activeProjectsCount: activeProjects.length,
+      activeProjects: activeProjects.map((p) => ({
+        id: String(p.id),
+        code: String(p.id),
+        name: p.project_name,
+        assignmentType: p.assignment_type,
+      })),
+      activeTasksCount: activeTasks.length,
+      activeTasks: activeTasks.map((t) => ({
+        id: String(t.id),
+        title: t.title,
+        status: t.status,
+        projectName: t.project_name,
+      })),
+      activeDealsCount: activeDeals.length,
+      activeDeals: activeDeals.map((d) => ({
+        id: String(d.id),
+        title: d.deal_name,
+        status: d.status,
+        dealValue: Number(d.expected_value || 0),
+      })),
+      hasActiveWorkload:
+        activeProjects.length > 0 || activeTasks.length > 0 || activeDeals.length > 0,
+    };
+  }
+
+  // -------------------------------------------------------------
   // MOVE MEMBER BETWEEN TEAMS (TRANSACTION + TEMPORAL HISTORY)
   // -------------------------------------------------------------
   async moveMember(dto: MoveMemberDto, actorEmployeeId: string | number) {
     const db = this.kysely.db;
 
-    return await db.transaction().execute(async (trx) => {
-      // 1. Lock candidate employee record
+    const result = await db.transaction().execute(async (trx) => {
+      // 1. Lock candidate employee record (deterministic single lock on target employee)
       const employee = await trx
         .selectFrom('employees')
         .leftJoin('positions', 'positions.id', 'employees.position_id')
@@ -357,19 +461,7 @@ export class OrganizationChartService {
         );
       }
 
-      // 2. Lock Target Team
-      const targetTeam = await trx
-        .selectFrom('teams')
-        .selectAll()
-        .where('id', '=', dto.targetTeamId as any)
-        .forUpdate()
-        .executeTakeFirst();
-
-      if (!targetTeam) {
-        throw new NotFoundException(`Nhóm đích #${dto.targetTeamId} không tồn tại`);
-      }
-
-      // 3. Lock current active membership of employee
+      // 2. Lock current active membership of employee
       const currentMembership = await trx
         .selectFrom('team_memberships')
         .selectAll()
@@ -384,44 +476,51 @@ export class OrganizationChartService {
         );
       }
 
-      // RULE: Do not allow dragging Team Leader as normal member
-      if (currentMembership.is_leader) {
-        throw new BadRequestException(
-          `Không thể kéo thả Trưởng nhóm (${employee.full_name}) thành thành viên thường. Vui lòng sử dụng action 'Đổi trưởng Team'.`,
-        );
-      }
-
       // Check if already in target team
-      if (String(currentMembership.team_id) === String(targetTeam.id)) {
+      if (String(currentMembership.team_id) === String(dto.targetTeamId)) {
         throw new BadRequestException(
-          `Nhân viên ${employee.full_name} đã thuộc nhóm [${targetTeam.name}]`,
+          `Nhân viên ${employee.full_name} đã thuộc nhóm này`,
         );
       }
 
-      // 4. Lock Source Team
-      const sourceTeam = await trx
+      // 3. Lock Teams in deterministic order (by team ID) to prevent deadlocks
+      const [firstTeamId, secondTeamId] = [
+        BigInt(currentMembership.team_id),
+        BigInt(dto.targetTeamId),
+      ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+      const lockedTeams = await trx
         .selectFrom('teams')
         .selectAll()
-        .where('id', '=', currentMembership.team_id as any)
+        .where('id', 'in', [firstTeamId, secondTeamId] as any)
         .forUpdate()
-        .executeTakeFirst();
+        .execute();
+
+      const sourceTeam = lockedTeams.find((t) => String(t.id) === String(currentMembership.team_id));
+      const targetTeam = lockedTeams.find((t) => String(t.id) === String(dto.targetTeamId));
 
       if (!sourceTeam) {
         throw new NotFoundException(`Nhóm nguồn #${currentMembership.team_id} không tồn tại`);
       }
+      if (!targetTeam) {
+        throw new NotFoundException(`Nhóm đích #${dto.targetTeamId} không tồn tại`);
+      }
 
-      // CROSS-DEPARTMENT CHECK:
+      // Check supported department
+      const validDepts = ['SALES', 'DEV', 'SEO'];
+      if (!targetTeam.department || !validDepts.includes(targetTeam.department.toUpperCase())) {
+        throw new BadRequestException(
+          `Nhóm đích thuộc phòng ban [${targetTeam.department || 'KHÔNG XÁC ĐỊNH'}] không hợp lệ để điều chuyển. Chỉ hỗ trợ điều chuyển giữa SALES, DEV, SEO.`,
+        );
+      }
+
       const isCrossDepartment =
         (sourceTeam.department || '').toUpperCase() !==
         (targetTeam.department || '').toUpperCase();
 
-      if (isCrossDepartment) {
-        throw new BadRequestException(
-          `CROSS_DEPARTMENT_TRANSFER_RULE_NOT_DEFINED: Chưa hỗ trợ điều chuyển liên phòng ban ([${sourceTeam.department}] -> [${targetTeam.department}]).`,
-        );
-      }
+      const wasLeader = Boolean(currentMembership.is_leader);
 
-      // 5. Close old membership range at NOW()
+      // 4. Close old membership range at NOW()
       await trx
         .updateTable('team_memberships')
         .set({
@@ -430,7 +529,7 @@ export class OrganizationChartService {
         .where('id', '=', currentMembership.id)
         .execute();
 
-      // 6. Insert new membership into target team: [NOW(), NULL)
+      // 5. Insert new membership into target team: [NOW(), NULL), ALWAYS is_leader: false
       const [newMembership] = await trx
         .insertInto('team_memberships')
         .values({
@@ -442,19 +541,133 @@ export class OrganizationChartService {
         .returningAll()
         .execute();
 
+      let targetPos: any = null;
+      let targetRole: any = null;
+
+      // 6. Handle Role & Position Transition (Cross-Department or Leader becoming Regular Member)
+      const shouldUpdateRoleAndPosition = isCrossDepartment || wasLeader;
+
+      if (shouldUpdateRoleAndPosition) {
+        const targetDeptCode =
+          targetTeam.department.toUpperCase() === 'SALES' ? 'SALE' : targetTeam.department.toUpperCase();
+
+        targetPos = await trx
+          .selectFrom('positions')
+          .selectAll()
+          .where('code', '=', targetDeptCode)
+          .executeTakeFirst();
+
+        if (!targetPos) {
+          throw new NotFoundException(
+            `Chức vụ tương ứng [${targetDeptCode}] không tồn tại trong hệ thống`,
+          );
+        }
+
+        targetRole = await trx
+          .selectFrom('roles')
+          .selectAll()
+          .where('code', '=', targetDeptCode)
+          .executeTakeFirst();
+
+        if (!targetRole) {
+          throw new NotFoundException(
+            `Vai trò (Role) tương ứng [${targetDeptCode}] không tồn tại trong hệ thống`,
+          );
+        }
+
+        // Close current open employee_position_history
+        await trx
+          .updateTable('employee_position_history')
+          .set({
+            effective_range: sql`tstzrange(lower(effective_range), NOW(), '[)')` as any,
+          })
+          .where('employee_id', '=', dto.employeeId as any)
+          .where(sql`upper_inf(effective_range)` as any)
+          .execute();
+
+        // Insert new position history
+        const noteText = dto.reason?.trim()
+          ? (isCrossDepartment
+              ? `[CROSS_DEPARTMENT_TRANSFER] ${dto.reason.trim()}`
+              : `[TEAM_TRANSFER] ${dto.reason.trim()}`)
+          : (isCrossDepartment
+              ? `[CROSS_DEPARTMENT_TRANSFER] Điều chuyển từ [${sourceTeam.department}] (${sourceTeam.name}) sang [${targetTeam.department}] (${targetTeam.name})`
+              : `[TEAM_TRANSFER] Điều chuyển từ [${sourceTeam.name}] sang [${targetTeam.name}] (mặc định là nhân viên của nhóm mới)`);
+
+        await trx
+          .insertInto('employee_position_history')
+          .values({
+            employee_id: dto.employeeId as any,
+            position_id: targetPos.id as any,
+            effective_range: sql`tstzrange(NOW(), NULL, '[)')` as any,
+            note: noteText,
+            created_at: new Date(),
+          })
+          .execute();
+
+        // Update employee.position_id
+        await trx
+          .updateTable('employees')
+          .set({
+            position_id: targetPos.id as any,
+            updated_at: new Date(),
+          })
+          .where('id', '=', dto.employeeId as any)
+          .execute();
+
+        // Rotate user_roles if linked user account exists
+        if (employee.user_id) {
+          // Dynamic lookup of all departmental roles to revoke
+          const deptRoleCodes = [
+            'DEV',
+            'DEV_TEAM_LEADER',
+            'SALE',
+            'SALES_TEAM_LEADER',
+            'SEO',
+            'SEO_TEAM_LEADER',
+          ];
+          const deptRoles = await trx
+            .selectFrom('roles')
+            .select('id')
+            .where('code', 'in', deptRoleCodes)
+            .execute();
+          const deptRoleIds = deptRoles.map((r) => r.id);
+
+          if (deptRoleIds.length > 0) {
+            await trx
+              .deleteFrom('user_roles')
+              .where('user_id', '=', employee.user_id as any)
+              .where('role_id', 'in', deptRoleIds as any[])
+              .execute();
+          }
+
+          // Grant target base role
+          await trx
+            .insertInto('user_roles')
+            .values({
+              user_id: employee.user_id as any,
+              role_id: targetRole.id as any,
+            })
+            .execute();
+        }
+      }
+
       // 7. Audit log
       await trx
         .insertInto('audit_logs')
         .values({
-          action: 'ORG_CHART_MOVE_MEMBER',
-          entity_type: 'TEAM_MEMBERSHIP',
-          entity_id: newMembership.id,
+          action: isCrossDepartment ? 'ORG_CHART_CROSS_DEPT_MOVE' : 'ORG_CHART_MOVE_MEMBER',
+          entity_type: 'EMPLOYEE',
+          entity_id: employee.id as any,
           actor_employee_id: actorEmployeeId as any,
           payload_before_sanitized: JSON.stringify({
             membershipId: currentMembership.id,
             sourceTeamId: sourceTeam.id,
             sourceTeamName: sourceTeam.name,
             sourceDepartment: sourceTeam.department,
+            wasLeader: currentMembership.is_leader,
+            positionId: employee.position_id,
+            positionCode: employee.position_code,
             employeeId: dto.employeeId,
           }),
           payload_after_sanitized: JSON.stringify({
@@ -462,8 +675,14 @@ export class OrganizationChartService {
             targetTeamId: targetTeam.id,
             targetTeamName: targetTeam.name,
             targetDepartment: targetTeam.department,
+            isLeader: false,
+            newPositionId: targetPos ? targetPos.id : employee.position_id,
+            newPositionCode: targetPos ? targetPos.code : employee.position_code,
+            newRoleId: targetRole ? targetRole.id : null,
+            newRoleCode: targetRole ? targetRole.code : null,
             employeeId: dto.employeeId,
             isCrossDepartment,
+            wasLeader,
             reason: dto.reason || null,
           }),
         })
@@ -471,15 +690,26 @@ export class OrganizationChartService {
 
       return {
         message: isCrossDepartment
-          ? `Chuyển nhóm thành công (Lưu ý: Chuyển liên phòng ban [${sourceTeam.department}] -> [${targetTeam.department}])`
-          : 'Chuyển nhóm làm việc thành công',
+          ? `Điều chuyển nhân sự liên phòng ban thành công ([${sourceTeam.department}] -> [${targetTeam.department}])`
+          : wasLeader
+            ? 'Chuyển nhóm làm việc thành công (nhân sự là nhân viên của nhóm mới)'
+            : 'Chuyển nhóm làm việc thành công',
         oldMembershipId: String(currentMembership.id),
         newMembershipId: String(newMembership.id),
         sourceTeamId: String(sourceTeam.id),
         targetTeamId: String(targetTeam.id),
         isCrossDepartment,
+        wasLeader,
+        userId: employee.user_id ? String(employee.user_id) : null,
       };
     });
+
+    // 8. Revoke Redis sessions AFTER DB commit
+    if (result.userId && (result.isCrossDepartment || result.wasLeader)) {
+      await this.sessionService.revokeAllUserSessions(result.userId);
+    }
+
+    return result;
   }
 
   // -------------------------------------------------------------

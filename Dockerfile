@@ -12,10 +12,11 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Enable PNPM package manager
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
-# Copy root workspace manifests
+# Copy root workspace manifests & patches
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches/ ./patches/
 
 # Copy package manifests for isolated cache invalidation
 COPY packages/config/package.json ./packages/config/
@@ -31,7 +32,7 @@ RUN pnpm install --frozen-lockfile
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/config/node_modules ./packages/config/node_modules
@@ -39,6 +40,7 @@ COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_module
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json* ./
+COPY patches/ ./patches/
 COPY packages/ ./packages/
 COPY apps/api/ ./apps/api/
 
@@ -60,6 +62,8 @@ RUN apk add --no-cache dumb-init curl
 
 ENV NODE_ENV=production
 ENV PORT=8080
+# Override when database schema and migration files are mounted elsewhere.
+ENV DATABASE_MIGRATIONS_DIR=/app/database
 
 # Switch to standard non-root user
 USER node
@@ -81,6 +85,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:${PORT:-8080}/api/healthz || exit 1
 
 # Default Entrypoint: API Service
-# For Worker Service: override CMD with ["dumb-init", "node", "apps/api/dist/src/worker.main.js"]
+# For Worker Service: override CMD with ["node", "apps/api/dist/worker.main.js"]
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "apps/api/dist/src/main.js"]
+CMD ["node", "apps/api/dist/main.js"]

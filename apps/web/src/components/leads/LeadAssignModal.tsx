@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, Form, Select, Input, Avatar, Button, Space, Typography, Alert, message } from 'antd';
+import { Modal, Form, Select, Input, Avatar, Button, Space, Typography, Alert, App } from 'antd';
 import { UserOutlined, UserSwitchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { assignLeadApi } from '../../api/leads';
 import { getEmployees, EmployeeItem } from '../../api/employees';
+import { useAuthStore } from '../../store/authStore';
 
 const { Text } = Typography;
 
@@ -22,9 +23,18 @@ export const LeadAssignModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
+  const { message } = App.useApp();
+  const { user } = useAuthStore();
+  const canAssign = Boolean(
+    user?.roles?.some((r) => ['ADMIN', 'BOSS', 'SUPER_ADMIN', 'SALES_TEAM_LEADER'].includes(r)) ||
+    user?.permissions?.includes('LEAD_ASSIGN')
+  );
+
   const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  if (!isOpen || !canAssign) return null;
 
   // Fetch danh sách nhân viên
   const { data: employeesData, isLoading: loadingEmployees } = useQuery({
@@ -100,7 +110,7 @@ export const LeadAssignModal: React.FC<Props> = ({
         </Space>
       }
       open={isOpen}
-      destroyOnClose
+      destroyOnHidden
       onCancel={onClose}
       footer={null}
       afterClose={() => {

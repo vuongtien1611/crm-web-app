@@ -20,9 +20,24 @@ export class SubscriptionsController {
     }
   }
 
+  private assertCreationAuthorized(user: any) {
+    const roles: string[] = user?.roles || [];
+    if (!roles.some((role) => ['ACCOUNTANT', 'ADMIN', 'BOSS'].includes(role))) {
+      throw new ForbiddenException(
+        'Bạn không có quyền tạo hợp đồng định kỳ (Yêu cầu quyền Kế toán, ADMIN hoặc BOSS)',
+      );
+    }
+  }
+
   @Get()
   async getSubscriptions(@Query() query: QuerySubscriptionDto, @CurrentUser() user?: any) {
     return await this.subscriptionsService.findSubscriptions(query, user);
+  }
+
+  @Get('eligible-order-items')
+  async getEligibleOrderItems(@CurrentUser() user?: any) {
+    this.assertCreationAuthorized(user);
+    return await this.subscriptionsService.findEligibleOrderItems();
   }
 
   @Get(':id')
@@ -32,6 +47,7 @@ export class SubscriptionsController {
 
   @Post()
   async createSubscription(@Body() dto: CreateSubscriptionDto, @CurrentUser() user?: any) {
+    this.assertCreationAuthorized(user);
     return await this.subscriptionsService.createSubscription(dto, user?.employeeId ? String(user.employeeId) : undefined);
   }
 

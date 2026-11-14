@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface SubscriptionCustomer {
   id: string;
@@ -164,6 +162,26 @@ export interface QuerySubscriptionsParams {
   search?: string;
 }
 
+export interface EligibleSubscriptionOrderItem {
+  orderItemId: string;
+  orderCode: string;
+  orderStatus: string;
+  itemApprovalStatus: string;
+  customerName: string;
+  serviceName: string;
+  serviceCode: string;
+  netServiceValue: number;
+}
+
+export interface CreateSubscriptionInput {
+  orderItemId: string;
+  billingInterval: 'MONTH' | 'QUARTER' | 'YEAR' | 'CUSTOM';
+  intervalCount: number;
+  startDate: string;
+  endDate?: string;
+  autoRenew: boolean;
+}
+
 export async function getSubscriptionsApi(
   params?: QuerySubscriptionsParams,
 ): Promise<SubscriptionsListResponse> {
@@ -175,7 +193,7 @@ export async function getSubscriptionsApi(
   if (params?.search) query.append('search', params.search);
 
   const qs = query.toString() ? `?${query.toString()}` : '';
-  const response = await fetchWithAuth(`${API_BASE_URL}/subscriptions${qs}`);
+  const response = await fetchWithAuth(buildApiUrl(`/subscriptions${qs}`));
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.message || 'Lỗi khi tải danh sách Subscription');
@@ -183,8 +201,30 @@ export async function getSubscriptionsApi(
   return response.json();
 }
 
+export async function getEligibleSubscriptionOrderItemsApi(): Promise<EligibleSubscriptionOrderItem[]> {
+  const response = await fetchWithAuth(buildApiUrl('/subscriptions/eligible-order-items'));
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể tải các mục dịch vụ đủ điều kiện');
+  }
+  return response.json();
+}
+
+export async function createSubscriptionApi(input: CreateSubscriptionInput): Promise<SubscriptionDetail> {
+  const response = await fetchWithAuth(buildApiUrl('/subscriptions'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể tạo hợp đồng định kỳ');
+  }
+  return response.json();
+}
+
 export async function getSubscriptionByIdApi(id: string): Promise<SubscriptionDetail> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/subscriptions/${id}`);
+  const response = await fetchWithAuth(buildApiUrl(`/subscriptions/${id}`));
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.message || `Lỗi khi tải thông tin Subscription #${id}`);
@@ -193,7 +233,7 @@ export async function getSubscriptionByIdApi(id: string): Promise<SubscriptionDe
 }
 
 export async function generatePeriodsApi(id: string, count: number = 1): Promise<any> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/subscriptions/${id}/generate-periods`, {
+  const response = await fetchWithAuth(buildApiUrl(`/subscriptions/${id}/generate-periods`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ count }),
@@ -206,7 +246,7 @@ export async function generatePeriodsApi(id: string, count: number = 1): Promise
 }
 
 export async function cancelSubscriptionApi(id: string): Promise<any> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/subscriptions/${id}/cancel`, {
+  const response = await fetchWithAuth(buildApiUrl(`/subscriptions/${id}/cancel`), {
     method: 'POST',
   });
   if (!response.ok) {

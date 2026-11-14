@@ -21,6 +21,8 @@ import {
   Segmented,
   Avatar,
   Badge,
+  Alert,
+  Popconfirm,
 } from 'antd';
 import {
   PlusOutlined,
@@ -52,6 +54,7 @@ import isoWeek from 'dayjs/plugin/isoWeek';
 dayjs.extend(isoWeek);
 
 import { useAuthStore } from '../../store/authStore';
+import { useDailyReportFilters } from './useDailyReportFilters';
 import { DynamicOptionSelect } from '../../components/common/DynamicOptionSelect';
 import { createRowActionHandler } from '../../utils/tableUtils';
 import {
@@ -61,6 +64,7 @@ import {
   getDailyReportByIdApi,
   createDailyReportApi,
   updateDailyReportApi,
+  deleteDailyReportApi,
   getDailyReportStatsApi,
   getDailyReportFilterOptionsApi,
   getProjectWorkItemsApi,
@@ -94,6 +98,8 @@ export const DailyReportsPage: React.FC = () => {
   const isTeamLeader = roles.some((r) => r.includes('LEADER'));
   const canAccessWeekly = isBoss || isTeamLeader || isAdmin;
   const canAccessTeamDaily = isTeamLeader || isAdminOrBoss;
+  const canCreateDailyReport = !isBoss && !isAdmin && !roles.includes('ACCOUNTANT');
+  const canCreateWeeklyReport = isTeamLeader && !isBoss && !isAdmin;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
@@ -150,79 +156,31 @@ export const DailyReportsPage: React.FC = () => {
   const fromDate = dateRange?.[0] ? dateRange[0].format('YYYY-MM-DD') : undefined;
   const toDate = dateRange?.[1] ? dateRange[1].format('YYYY-MM-DD') : undefined;
 
-  // Filters
-  const [selectedDepartment, setSelectedDepartment] = useState<string | undefined>(undefined);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(undefined);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | undefined>(undefined);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
-  const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
-  const [searchKeyword, setSearchKeyword] = useState<string>('');
-  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+  const {
+    selectedDepartment,
+    setSelectedDepartment,
+    selectedTeamId,
+    setSelectedTeamId,
+    selectedEmployeeId,
+    setSelectedEmployeeId,
+    selectedProjectId,
+    setSelectedProjectId,
+    selectedStatus,
+    setSelectedStatus,
+    searchKeyword,
+    setSearchKeyword,
+    debouncedSearch,
+    setDebouncedSearch,
+    filterOptions,
+    departmentOptions,
+    teamOptions,
+    employeeOptions,
+    projectOptions,
+    handleDepartmentChange,
+    handleTeamChange,
+  } = useDailyReportFilters();
   const [exporting, setExporting] = useState<boolean>(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchKeyword.trim());
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchKeyword]);
-
-  // Scope determines RBAC query
   const scopeParam: 'own' | 'team' | 'all' = isAdminOrBoss ? 'all' : isTeamLeader ? 'team' : 'own';
-
-  // 1. Fetch Filter Options
-  const { data: filterOptions } = useQuery<DailyReportFilterOptions>({
-    queryKey: ['dailyReportFilterOptions'],
-    queryFn: getDailyReportFilterOptionsApi,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Dependent Filter Options:
-  // Department -> Teams -> Employees
-  const departmentOptions = useMemo(() => {
-    return (filterOptions?.departments || []).map((d) => ({
-      label: d === 'DEV' ? 'Phòng DEV' : d === 'SALES' ? 'Phòng Sales' : d === 'SEO' ? 'Phòng SEO' : `Phòng ${d}`,
-      value: d,
-    }));
-  }, [filterOptions]);
-
-  const teamOptions = useMemo(() => {
-    let teamsList = filterOptions?.teams || [];
-    if (selectedDepartment) {
-      teamsList = teamsList.filter((t) => t.department === selectedDepartment);
-    }
-    return teamsList.map((t) => ({ label: t.name, value: t.id }));
-  }, [filterOptions, selectedDepartment]);
-
-  const employeeOptions = useMemo(() => {
-    let empList = filterOptions?.employees || [];
-    if (selectedTeamId) {
-      empList = empList.filter((e) => e.teamId === selectedTeamId);
-    }
-    return empList.map((e) => ({
-      label: `${e.fullName} (${e.employeeCode})`,
-      value: e.id,
-    }));
-  }, [filterOptions, selectedTeamId]);
-
-  const projectOptions = useMemo(() => {
-    return (filterOptions?.projects || []).map((p) => ({
-      label: p.name,
-      value: p.id,
-    }));
-  }, [filterOptions]);
-
-  // When Department changes, reset Team and Employee if they don't match
-  const handleDepartmentChange = (val?: string) => {
-    setSelectedDepartment(val);
-    setSelectedTeamId(undefined);
-    setSelectedEmployeeId(undefined);
-  };
-
-  const handleTeamChange = (val?: string) => {
-    setSelectedTeamId(val);
-    setSelectedEmployeeId(undefined);
-  };
 
   // 2. Fetch Stats KPI
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<DailyReportStats>({
@@ -446,63 +404,258 @@ export const DailyReportsPage: React.FC = () => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  const handleOpenCreateModal = () => {
-    setEditingReport(null);
-    form.resetFields();
-    form.setFieldsValue({
-      report_date: dayjs(),
-      items: [
-        {
-          work_title: '',
-          work_detail: '',
-          link: '',
-          status: 'IN_PROGRESS',
-          progress_percent: 50,
-          note: '',
-        },
-      ],
-    });
-    setIsModalOpen(true);
+  const checkExistingReportForDate = async (dateStr: string): Promise<DailyReportItem | null> => {
+    if (!user?.employeeId || !dateStr) return null;
+
+    // 1. Check local loaded reports first
+    const localMatch = reports.find(
+      (r) => String(r.employeeId) === String(user.employeeId) && r.reportDate === dateStr,
+    );
+    if (localMatch) {
+      try {
+        const detail = await getDailyReportByIdApi(localMatch.id);
+        return detail;
+      } catch {
+        return localMatch;
+      }
+    }
+
+    // 2. Query API specifically for this date
+    try {
+      const res = await getDailyReportsApi({
+        date: dateStr,
+        employee_id: String(user.employeeId),
+        scope: 'own',
+      });
+      if (res && res.length > 0) {
+        const match = res.find((r) => String(r.employeeId) === String(user.employeeId));
+        if (match) {
+          try {
+            const detail = await getDailyReportByIdApi(match.id);
+            return detail;
+          } catch {
+            return match;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
   };
 
-  const handleOpenEditModal = async (report: DailyReportItem) => {
-    setEditingReport(report);
-    form.resetFields();
+  const handleDeleteDailyReport = async (reportId: string) => {
     try {
-      const detail = await getDailyReportByIdApi(report.id);
-      form.setFieldsValue({
-        report_date: dayjs(detail.reportDate),
-        difficulty: detail.difficulty || '',
-        support_needed: detail.supportNeeded || '',
-        next_plan: detail.nextPlan || '',
-        note: detail.note || '',
-        items: detail.items?.map((it) => ({
+      await deleteDailyReportApi(reportId);
+      message.success('Đã xóa báo cáo công việc thành công');
+      handleRefresh();
+    } catch (err: any) {
+      message.error(err.message || 'Lỗi khi xóa báo cáo công việc');
+    }
+  };
+
+  const handleOpenCreateModal = async () => {
+    setIsModalOpen(true);
+    const today = dayjs();
+    const todayStr = today.format('YYYY-MM-DD');
+
+    // Check if user already submitted a report today
+    const existing = await checkExistingReportForDate(todayStr);
+    if (existing) {
+      setEditingReport(existing);
+      const existingItems =
+        existing.items?.map((it) => ({
+          id: it.id,
           work_title: it.workTitle,
           work_detail: it.workDetail,
           link: it.link || '',
           status: it.status,
           progress_percent: it.progressPercent,
           note: it.note || '',
-        })) || [],
+          project_id: it.projectId || undefined,
+        })) || [];
+
+      form.setFieldsValue({
+        report_date: today,
+        difficulty: existing.difficulty || '',
+        support_needed: existing.supportNeeded || '',
+        next_plan: existing.nextPlan || '',
+        note: existing.note || '',
+        items: [
+          ...existingItems,
+          {
+            work_title: '',
+            work_detail: '',
+            link: '',
+            status: 'IN_PROGRESS',
+            progress_percent: 50,
+            note: '',
+          },
+        ],
+      });
+      message.info(
+        `Bạn đã có báo cáo ngày hôm nay (${todayStr}). Hệ thống đã chuyển sang chế độ bổ sung / cập nhật đầu việc mới.`,
+        5,
+      );
+    } else {
+      setEditingReport(null);
+      form.resetFields();
+      form.setFieldsValue({
+        report_date: today,
+        difficulty: '',
+        support_needed: '',
+        next_plan: '',
+        note: '',
+        items: [
+          {
+            work_title: '',
+            work_detail: '',
+            link: '',
+            status: 'IN_PROGRESS',
+            progress_percent: 50,
+            note: '',
+          },
+        ],
+      });
+    }
+  };
+
+  const handleReportDateChange = async (date: dayjs.Dayjs | null) => {
+    if (!date) return;
+    const dateStr = date.format('YYYY-MM-DD');
+    const existing = await checkExistingReportForDate(dateStr);
+    if (existing) {
+      setEditingReport(existing);
+      const existingItems =
+        existing.items?.map((it) => ({
+          id: it.id,
+          work_title: it.workTitle,
+          work_detail: it.workDetail,
+          link: it.link || '',
+          status: it.status,
+          progress_percent: it.progressPercent,
+          note: it.note || '',
+          project_id: it.projectId || undefined,
+        })) || [];
+
+      form.setFieldsValue({
+        report_date: date,
+        difficulty: existing.difficulty || '',
+        support_needed: existing.supportNeeded || '',
+        next_plan: existing.nextPlan || '',
+        note: existing.note || '',
+        items:
+          existingItems.length > 0
+            ? existingItems
+            : [
+                {
+                  work_title: '',
+                  work_detail: '',
+                  link: '',
+                  status: 'IN_PROGRESS',
+                  progress_percent: 50,
+                  note: '',
+                },
+              ],
+      });
+      message.info(`Đã có báo cáo cho ngày ${dateStr}. Chuyển sang chế độ cập nhật báo cáo.`);
+    } else {
+      setEditingReport(null);
+      form.setFieldsValue({
+        report_date: date,
+        difficulty: '',
+        support_needed: '',
+        next_plan: '',
+        note: '',
+        items: [
+          {
+            work_title: '',
+            work_detail: '',
+            link: '',
+            status: 'IN_PROGRESS',
+            progress_percent: 50,
+            note: '',
+          },
+        ],
+      });
+    }
+  };
+
+  const handleOpenEditModal = async (report: DailyReportItem) => {
+    setIsModalOpen(true);
+    try {
+      const detail = await getDailyReportByIdApi(report.id);
+      setEditingReport(detail);
+      form.setFieldsValue({
+        report_date: dayjs(detail.reportDate),
+        difficulty: detail.difficulty || '',
+        support_needed: detail.supportNeeded || '',
+        next_plan: detail.nextPlan || '',
+        note: detail.note || '',
+        items:
+          detail.items && detail.items.length > 0
+            ? detail.items.map((it) => ({
+                id: it.id,
+                work_title: it.workTitle,
+                work_detail: it.workDetail,
+                link: it.link || '',
+                status: it.status,
+                progress_percent: it.progressPercent,
+                note: it.note || '',
+                project_id: it.projectId || undefined,
+              }))
+            : [
+                {
+                  work_title: '',
+                  work_detail: '',
+                  link: '',
+                  status: 'IN_PROGRESS',
+                  progress_percent: 50,
+                  note: '',
+                },
+              ],
       });
     } catch {
+      setEditingReport(report);
       form.setFieldsValue({
         report_date: dayjs(report.reportDate),
         difficulty: report.difficulty || '',
         support_needed: report.supportNeeded || '',
         next_plan: report.nextPlan || '',
         note: report.note || '',
+        items: [
+          {
+            work_title: '',
+            work_detail: '',
+            link: '',
+            status: 'IN_PROGRESS',
+            progress_percent: 50,
+            note: '',
+          },
+        ],
       });
     }
-    setIsModalOpen(true);
   };
 
   const handleSubmitDailyReport = async () => {
+    let formattedDate = '';
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      const formattedDate = values.report_date.format('YYYY-MM-DD');
-      const itemsPayload = values.items?.filter((it: any) => it?.work_title?.trim() && it?.work_detail?.trim()) || [];
+      formattedDate = values.report_date?.format('YYYY-MM-DD') || '';
+      const rawItems = values.items || [];
+      const itemsPayload = rawItems
+        .filter((it: any) => it?.work_title?.trim() && it?.work_detail?.trim())
+        .map((it: any) => ({
+          id: it.id,
+          work_title: it.work_title.trim(),
+          work_detail: it.work_detail.trim(),
+          link: it.link?.trim() || null,
+          status: it.status || 'IN_PROGRESS',
+          progress_percent: it.progress_percent !== undefined ? Number(it.progress_percent) : 0,
+          note: it.note?.trim() || null,
+          project_id: it.project_id || null,
+        }));
 
       if (editingReport) {
         await updateDailyReportApi(editingReport.id, {
@@ -510,8 +663,9 @@ export const DailyReportsPage: React.FC = () => {
           support_needed: values.support_needed,
           next_plan: values.next_plan,
           note: values.note,
+          items: itemsPayload,
         });
-        message.success('Cập nhật báo cáo thành công');
+        message.success('Cập nhật và bổ sung báo cáo thành công!');
       } else {
         await createDailyReportApi({
           report_date: formattedDate,
@@ -521,12 +675,35 @@ export const DailyReportsPage: React.FC = () => {
           note: values.note,
           items: itemsPayload,
         });
-        message.success('Tạo báo cáo ngày thành công');
+        message.success('Tạo báo cáo ngày thành công!');
       }
       setIsModalOpen(false);
       handleRefresh();
     } catch (err: any) {
-      message.error(err.message || 'Thao tác thất bại');
+      const msg = err?.message || '';
+      if (
+        msg.includes('already exists') ||
+        msg.includes('đã gửi báo cáo') ||
+        msg.includes('đã tạo') ||
+        err?.status === 409
+      ) {
+        // Auto-recovery: fetch the existing report for this date and switch to edit mode
+        const existing = await checkExistingReportForDate(formattedDate);
+        if (existing) {
+          setEditingReport(existing);
+          message.warning(
+            `Đã có báo cáo cho ngày ${formattedDate}. Hệ thống đã chuyển sang chế độ cập nhật, bạn có thể kiểm tra và bấm "Lưu thay đổi"!`,
+            6,
+          );
+          return;
+        }
+        message.warning(
+          `Bạn đã gửi báo cáo công việc cho ngày ${formattedDate} rồi. Vui lòng mở báo cáo đã gửi để cập nhật!`,
+          6,
+        );
+      } else {
+        message.error(msg || 'Thao tác thất bại');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -870,10 +1047,12 @@ export const DailyReportsPage: React.FC = () => {
       {
         title: 'Thao tác',
         key: 'action',
-        width: 80,
+        width: 110,
         align: 'center' as const,
         render: (_: any, r: any) => {
           const isOwn = String(r.employeeId) === String(user?.employeeId);
+          const isAdminOrBoss = user?.roles?.includes('ADMIN') || user?.roles?.includes('BOSS');
+          const canDelete = isOwn || isAdminOrBoss;
           return (
             <Space size={4}>
               <Button
@@ -891,6 +1070,24 @@ export const DailyReportsPage: React.FC = () => {
                   title="Chỉnh sửa"
                   onClick={() => handleOpenEditModal(r.originalReport)}
                 />
+              )}
+              {canDelete && (
+                <Popconfirm
+                  title="Xóa báo cáo"
+                  description="Bạn có chắc chắn muốn xóa báo cáo công việc ngày này không?"
+                  onConfirm={() => handleDeleteDailyReport(r.reportId)}
+                  okText="Xóa"
+                  cancelText="Hủy"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    title="Xóa báo cáo"
+                  />
+                </Popconfirm>
               )}
             </Space>
           );
@@ -1199,36 +1396,40 @@ export const DailyReportsPage: React.FC = () => {
             Xuất Excel
           </Button>
 
-          {activeTab === 'weekly' && canAccessWeekly ? (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleOpenWeeklyCreateModal}
-              style={{
-                borderRadius: 8,
-                height: 38,
-                backgroundColor: '#059669',
-                borderColor: '#059669',
-                fontWeight: 600,
-              }}
-            >
-              Tạo báo cáo tuần
-            </Button>
+          {activeTab === 'weekly' ? (
+            canCreateWeeklyReport && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleOpenWeeklyCreateModal}
+                style={{
+                  borderRadius: 8,
+                  height: 38,
+                  backgroundColor: '#059669',
+                  borderColor: '#059669',
+                  fontWeight: 600,
+                }}
+              >
+                Tạo báo cáo tuần
+              </Button>
+            )
           ) : (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleOpenCreateModal}
-              style={{
-                borderRadius: 8,
-                height: 38,
-                backgroundColor: '#059669',
-                borderColor: '#059669',
-                fontWeight: 600,
-              }}
-            >
-              Tạo báo cáo ngày
-            </Button>
+            canCreateDailyReport && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleOpenCreateModal}
+                style={{
+                  borderRadius: 8,
+                  height: 38,
+                  backgroundColor: '#059669',
+                  borderColor: '#059669',
+                  fontWeight: 600,
+                }}
+              >
+                Tạo báo cáo ngày
+              </Button>
+            )
           )}
         </div>
       </div>
@@ -1866,7 +2067,7 @@ export const DailyReportsPage: React.FC = () => {
             <Button icon={<FileExcelOutlined />} onClick={handleExportExcel} loading={exporting}>
               Xuất Excel
             </Button>
-            {activeTab === 'weekly' && isTeamLeader && (
+            {activeTab === 'weekly' && canCreateWeeklyReport && (
               <>
                 <Button
                   type="default"
@@ -1881,7 +2082,7 @@ export const DailyReportsPage: React.FC = () => {
                 </Button>
               </>
             )}
-            {activeTab !== 'weekly' && (
+            {activeTab !== 'weekly' && canCreateDailyReport && (
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
@@ -2071,53 +2272,95 @@ export const DailyReportsPage: React.FC = () => {
 
       {/* MODAL 1: DAILY REPORT CREATE / EDIT */}
       <Modal
-        title={editingReport ? `Chỉnh sửa báo cáo ngày ${editingReport.reportDate}` : 'Tạo báo cáo công việc ngày'}
+        title={
+          editingReport
+            ? `Cập nhật & Bổ sung báo cáo ngày ${editingReport.reportDate}`
+            : 'Tạo báo cáo công việc ngày'
+        }
         open={isModalOpen}
         onOk={handleSubmitDailyReport}
         onCancel={() => setIsModalOpen(false)}
         confirmLoading={submitting}
-        okText={editingReport ? 'Lưu thay đổi' : 'Gửi báo cáo'}
+        okText={editingReport ? 'Lưu & Cập nhật báo cáo' : 'Gửi báo cáo'}
         cancelText="Hủy"
         width={780}
+        forceRender
       >
         <Form form={form} layout="vertical" className="vmax-form">
+          {editingReport && (
+            <Alert
+              message={`Báo cáo ngày ${editingReport.reportDate} đã tồn tại`}
+              description="Hệ thống đã tự động chuyển sang chế độ cập nhật. Bạn có thể sửa các nội dung chung hoặc thêm các đầu việc mới hoàn thành bên dưới."
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
           <Form.Item
             name="report_date"
             label="Ngày báo cáo"
             rules={[{ required: true, message: 'Vui lòng chọn ngày báo cáo' }]}
           >
-            <DatePicker style={{ width: '100%' }} disabled={Boolean(editingReport)} />
+            <DatePicker
+              style={{ width: '100%' }}
+              onChange={handleReportDateChange}
+            />
           </Form.Item>
 
-          {!editingReport && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text strong style={{ fontSize: 14 }}>
-                  Danh sách đầu việc thực hiện trong ngày (Work Items)
-                </Text>
-              </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text strong style={{ fontSize: 14 }}>
+                Danh sách đầu việc thực hiện trong ngày (Work Items)
+              </Text>
+            </div>
 
-              <Form.List name="items">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }, idx) => (
+            <Form.List name="items">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.map(({ key, name, ...restField }, idx) => {
+                    const itemId = form.getFieldValue(['items', name, 'id']);
+                    return (
                       <Card
                         key={key}
                         size="small"
                         style={{ marginBottom: 12, background: '#fafafa', border: '1px solid #e2e8f0' }}
-                        title={<Text strong style={{ fontSize: 12 }}>Đầu việc #{idx + 1}</Text>}
+                        title={
+                          <Space size={8}>
+                            <Text strong style={{ fontSize: 12 }}>
+                              Đầu việc #{idx + 1}
+                            </Text>
+                            {itemId ? (
+                              <Tag color="blue" style={{ fontSize: 11 }}>Đã lưu</Tag>
+                            ) : (
+                              <Tag color="green" style={{ fontSize: 11 }}>Mới thêm</Tag>
+                            )}
+                          </Space>
+                        }
                         extra={
                           fields.length > 1 ? (
-                            <Button
-                              type="text"
-                              danger
-                              size="small"
-                              icon={<DeleteOutlined />}
-                              onClick={() => remove(name)}
-                            />
+                            <Popconfirm
+                              title="Xóa đầu việc"
+                              description="Bạn có chắc chắn muốn xóa đầu việc này khỏi báo cáo?"
+                              onConfirm={() => remove(name)}
+                              okText="Xóa"
+                              cancelText="Hủy"
+                              okButtonProps={{ danger: true }}
+                            >
+                              <Button
+                                type="text"
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                title="Xóa đầu việc"
+                              />
+                            </Popconfirm>
                           ) : null
                         }
                       >
+                        <Form.Item {...restField} name={[name, 'id']} noStyle>
+                          <input type="hidden" />
+                        </Form.Item>
                         <Row gutter={12}>
                           <Col span={14}>
                             <Form.Item
@@ -2198,30 +2441,30 @@ export const DailyReportsPage: React.FC = () => {
                           </Col>
                         </Row>
                       </Card>
-                    ))}
+                    );
+                  })}
 
-                    <Button
-                      type="dashed"
-                      onClick={() =>
-                        add({
-                          work_title: '',
-                          work_detail: '',
-                          status: 'IN_PROGRESS',
-                          progress_percent: 50,
-                          link: '',
-                          note: '',
-                        })
-                      }
-                      block
-                      icon={<PlusOutlined />}
-                    >
-                      Thêm đầu việc mới
-                    </Button>
-                  </>
-                )}
-              </Form.List>
-            </div>
-          )}
+                  <Button
+                    type="dashed"
+                    onClick={() =>
+                      add({
+                        work_title: '',
+                        work_detail: '',
+                        status: 'IN_PROGRESS',
+                        progress_percent: 50,
+                        link: '',
+                        note: '',
+                      })
+                    }
+                    block
+                    icon={<PlusOutlined />}
+                  >
+                    Thêm đầu việc mới
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          </div>
 
           <Form.Item name="difficulty" label="Khó khăn / Trở ngại gặp phải">
             <TextArea rows={2} placeholder="Nêu rõ các vấn đề phát sinh..." />
@@ -2247,6 +2490,42 @@ export const DailyReportsPage: React.FC = () => {
         open={detailModalOpen}
         onCancel={() => setDetailModalOpen(false)}
         footer={[
+          viewingReport &&
+            user?.employeeId &&
+            String(viewingReport.employeeId) === String(user.employeeId) && (
+              <Button
+                key="edit"
+                type="primary"
+                icon={<EditOutlined />}
+                onClick={() => {
+                  setDetailModalOpen(false);
+                  handleOpenEditModal(viewingReport);
+                }}
+              >
+                Chỉnh sửa & Bổ sung đầu việc
+              </Button>
+            ),
+          viewingReport &&
+            (String(viewingReport.employeeId) === String(user?.employeeId) ||
+              user?.roles?.includes('ADMIN') ||
+              user?.roles?.includes('BOSS')) && (
+              <Popconfirm
+                key="delete"
+                title="Xóa báo cáo"
+                description={`Bạn có chắc chắn muốn xóa toàn bộ báo cáo ngày ${viewingReport.reportDate} không?`}
+                onConfirm={async () => {
+                  await handleDeleteDailyReport(viewingReport.id);
+                  setDetailModalOpen(false);
+                }}
+                okText="Xóa"
+                cancelText="Hủy"
+                okButtonProps={{ danger: true }}
+              >
+                <Button danger icon={<DeleteOutlined />}>
+                  Xóa báo cáo
+                </Button>
+              </Popconfirm>
+            ),
           <Button key="close" onClick={() => setDetailModalOpen(false)}>
             Đóng
           </Button>,
@@ -2383,6 +2662,7 @@ export const DailyReportsPage: React.FC = () => {
         open={weeklyModalOpen}
         onCancel={() => setWeeklyModalOpen(false)}
         width={750}
+        forceRender
         footer={[
           <Button key="cancel" onClick={() => setWeeklyModalOpen(false)}>
             Hủy

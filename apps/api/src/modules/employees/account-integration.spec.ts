@@ -73,13 +73,24 @@ async function runAccountIntegrationTests() {
     .returningAll()
     .execute();
 
-  // Get admin employee for actorEmployeeId
+  // Get admin employee for actorEmployeeId (or fallback to any existing / fixture employee on clean DB)
   const adminEmp = await db
     .selectFrom('employees')
     .select('id')
     .where('employee_code', '=', 'EMP-ADMIN-001')
     .executeTakeFirst();
-  const actorId = adminEmp ? String(adminEmp.id) : '1';
+  let actorEmpId = adminEmp?.id;
+  if (!actorEmpId) {
+    const anyEmp = await db.selectFrom('employees').select('id').orderBy('id', 'asc').executeTakeFirst();
+    actorEmpId = anyEmp?.id;
+  }
+  if (!actorEmpId) {
+    const pos = await db.selectFrom('positions').select('id').orderBy('id', 'asc').executeTakeFirstOrThrow();
+    const [u] = await db.insertInto('users').values({ username: `test_actor_${runId}`, email: `actor_${runId}@test.local`, password_hash: 'x', status: 'ACTIVE' }).returningAll().execute();
+    const [e] = await db.insertInto('employees').values({ employee_code: `ACTOR-${runId}`, full_name: 'Test Actor', position_id: pos.id, user_id: u.id, status: 'ACTIVE' }).returningAll().execute();
+    actorEmpId = e.id;
+  }
+  const actorId = String(actorEmpId);
 
   try {
     // ----------------------------------------------------------------
@@ -485,6 +496,41 @@ async function runAccountIntegrationTests() {
     // ----------------------------------------------------------------
     // CANONICAL SINGLE ACTIVE BOSS ENFORCEMENT SUITE
     // ----------------------------------------------------------------
+
+    // Ensure at least one active BOSS baseline exists on fresh/clean DBs before BOSS-01
+    const existingBossEmp = await db
+      .selectFrom('employees')
+      .innerJoin('positions', 'positions.id', 'employees.position_id')
+      .select('employees.id')
+      .where('positions.code', '=', 'BOSS')
+      .where('employees.status', 'in', ['ACTIVE', 'PROBATION'])
+      .executeTakeFirst();
+
+    const existingBossUser = await db
+      .selectFrom('user_roles')
+      .innerJoin('roles', 'roles.id', 'user_roles.role_id')
+      .innerJoin('users', 'users.id', 'user_roles.user_id')
+      .select('users.id')
+      .where('roles.code', '=', 'BOSS')
+      .where('users.status', '=', 'ACTIVE')
+      .executeTakeFirst();
+
+    if (!existingBossEmp && !existingBossUser) {
+      await employeesService.createEmployeeAccount(
+        {
+          username: `ACCT_TEST_boss_base_${runId}`,
+          email: `boss_base_${runId}@crm.local`,
+          password: 'Password123!',
+          fullName: 'Baseline Active Boss',
+          phone: '0909999990',
+          hireDate: '2026-09-12',
+          positionCode: 'BOSS',
+          roleCode: 'BOSS',
+          department: 'OPERATION',
+        },
+        actorId,
+      );
+    }
 
     // BOSS-01: Chặn tạo BOSS thứ 2 khi đã có BOSS active
     let secondBossCreateErr: any = null;

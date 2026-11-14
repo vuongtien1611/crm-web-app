@@ -1,4 +1,5 @@
 import { IsNotEmpty, IsString, IsOptional, Matches } from 'class-validator';
+import { CreateDailyReportItemDto } from './create-daily-report-item.dto';
 
 export class CreateDailyReportDto {
   @IsNotEmpty()
@@ -23,5 +24,5 @@ export class CreateDailyReportDto {
   note?: string;
 
   @IsOptional()
-  items?: any[];
+  items?: CreateDailyReportItemDto[];
 }

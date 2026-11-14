@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, message } from 'antd';
+import { Button, App } from 'antd';
 import { FileExcelOutlined } from '@ant-design/icons';
 import { downloadExportFile } from '../../api/export';
 import { useAuthStore } from '../../store/authStore';
@@ -25,6 +25,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
   type = 'default',
   disabled = false,
 }) => {
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const user = useAuthStore((state) => state.user);
 

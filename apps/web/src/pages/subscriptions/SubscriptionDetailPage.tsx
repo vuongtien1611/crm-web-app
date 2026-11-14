@@ -7,7 +7,7 @@ import {
   Tabs,
   Table,
   Modal,
-  message,
+  App,
   Popconfirm,
   Progress,
   Alert,
@@ -46,6 +46,7 @@ import {
 const { Title, Text } = Typography;
 
 export const SubscriptionDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();

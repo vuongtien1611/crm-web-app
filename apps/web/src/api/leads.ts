@@ -29,6 +29,14 @@ export interface LeadItem {
 }
 
 export interface LeadDetail extends LeadItem {
+  deal?: {
+    id: string;
+    deal_name: string;
+    status: string;
+    expected_value: number;
+    account_id: string;
+    account_name?: string | null;
+  } | null;
   assignmentHistory: Array<{
     id: string;
     assigned_at: string;
@@ -243,6 +251,22 @@ export async function getLeadDetailApi(id: string): Promise<LeadDetail> {
   return res.json();
 }
 
+export async function updateLeadInfoApi(
+  id: string,
+  data: { fullName: string; phone: string | null; email: string | null },
+): Promise<LeadItem> {
+  const res = await fetchWithAuth(`/api/leads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Failed to update lead information');
+  }
+  return res.json();
+}
+
 export async function createLeadApi(data: any): Promise<LeadItem> {
   const res = await fetchWithAuth('/api/leads', {
     method: 'POST',
@@ -317,6 +341,19 @@ export async function convertLeadToDealApi(id: string, data: any): Promise<any> 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Failed to convert lead to deal');
+  }
+  return res.json();
+}
+
+export async function restoreLeadConvertedApi(id: string): Promise<any> {
+  const res = await fetchWithAuth(`/api/leads/${id}/restore-converted`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể đưa Lead về trạng thái Đã chuyển đổi');
   }
   return res.json();
 }

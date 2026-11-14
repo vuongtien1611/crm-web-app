@@ -465,7 +465,7 @@ export async function runPhaseQCanonicalSuite() {
     const itemComms = await db.selectFrom('commissions').selectAll().where('order_item_id', '=', orderItem.id).execute();
     const saleComm = itemComms.find((c) => c.commission_type === 'SALE' && c.beneficiary_employee_id === saleEmp.id);
     assert(!!saleComm && saleComm.status === 'RELEASED', 'Q-E2E-I01: Sale commission released upon FULLY_PAID + Customer Acceptance');
-    assert(Number(saleComm?.calculated_amount) === 1500000, 'Q-E2E-I02: Sale commission computed accurately (10% of 15M = 1.5M)');
+    assert(Number(saleComm?.calculated_amount) === 900000, 'Q-E2E-I02: Sale commission computed accurately (6% of 15M = 900k)');
 
     const devComm = itemComms.find((c) => c.commission_type === 'PROJECT_DELIVERY' && c.beneficiary_employee_id === devEmp.id);
     assert(!!devComm && devComm.status === 'CALCULATED', 'Q-E2E-I03: Dev technical commission generated in CALCULATED status');
@@ -538,13 +538,17 @@ export async function runPhaseQCanonicalSuite() {
     // ----------------------------------------------------------------
     console.log('\n--- SECTION K: PAYROLL CALCULATION, APPROVAL & LOCK ---');
 
-    const periodKey = `2026-09-Q-${runId}`;
+    const now = new Date();
+    const currentYearMonth = now.toISOString().slice(0, 7);
+    const periodStart = `${currentYearMonth}-01`;
+    const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    const periodKey = `${currentYearMonth}-Q-${runId}`;
     const [period] = await db
       .insertInto('payroll_periods')
       .values({
         period_key: periodKey,
-        start_date: '2026-09-01' as any,
-        end_date: '2026-09-30' as any,
+        start_date: periodStart as any,
+        end_date: periodEnd as any,
         status: 'OPEN',
       })
       .returningAll()
@@ -558,7 +562,7 @@ export async function runPhaseQCanonicalSuite() {
 
     const salePayroll = payrolls.find((p) => p.employee_id === saleEmp.id);
     assert(!!salePayroll, 'Q-E2E-K02: Sale Alice payroll generated');
-    assert(Number(salePayroll?.released_commission_amount) >= 1500000, 'Q-E2E-K03: Sale Alice payroll contains 1.5M released commission');
+    assert(Number(salePayroll?.released_commission_amount) >= 900000, 'Q-E2E-K03: Sale Alice payroll contains 900k released commission');
 
     // Boss approves payroll period
     const approvedPeriod = await payrollService.approvePeriod(String(period.id), String(bossEmp.id));
@@ -595,7 +599,7 @@ export async function runPhaseQCanonicalSuite() {
     // ----------------------------------------------------------------
     console.log('\n--- SECTION M: EXECUTIVE DASHBOARD REPORTING ---');
 
-    const dashboard = await dashboardService.getExecutiveDashboard('2026-09');
+    const dashboard = await dashboardService.getExecutiveDashboard(currentYearMonth);
     assert(dashboard.cashReceivable.grossCashConfirmedTotal >= 15000000, 'Q-E2E-M01: Executive Dashboard reflects canonical confirmed gross cash');
     assert(dashboard.sales.totalLeads >= 1, 'Q-E2E-M02: Executive Dashboard reflects sales leads');
     assert(dashboard.delivery.completedProjects >= 1, 'Q-E2E-M03: Executive Dashboard reflects completed delivery projects');

@@ -4,6 +4,7 @@ import { UserOutlined, TrophyOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { setClosingSaleApi } from '../../api/deals';
 import { getEmployees, EmployeeItem } from '../../api/employees';
+import { useAuthStore } from '../../store/authStore';
 
 const { Text } = Typography;
 
@@ -24,9 +25,18 @@ export const DealClosingSaleModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
+  const { user } = useAuthStore();
+  const canAssign = Boolean(
+    user?.roles?.some((r) => ['ADMIN', 'BOSS', 'SUPER_ADMIN', 'SALES_TEAM_LEADER'].includes(r)) ||
+    user?.permissions?.includes('DEAL_SET_CLOSING_SALE') ||
+    user?.permissions?.includes('LEAD_ASSIGN')
+  );
+
   const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  if (!isOpen || !canAssign) return null;
 
   // Fetch sales employees
   const { data: employeesData, isLoading: loadingEmployees } = useQuery({

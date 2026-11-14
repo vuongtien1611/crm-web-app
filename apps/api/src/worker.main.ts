@@ -1,7 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
+
+const logger = new Logger('WorkerBootstrap');
 
 /**
  * Dedicated Background Worker Process for Cloud Run Worker Service.
@@ -27,10 +30,10 @@ async function bootstrapWorker() {
   app.setGlobalPrefix('api');
 
   await app.listen(port, '0.0.0.0');
-  console.log(`⚙️ NestJS CRM Background Worker running on http://0.0.0.0:${port}`);
+  logger.log(`⚙️ NestJS CRM Background Worker running on http://0.0.0.0:${port}`);
 }
 
 bootstrapWorker().catch((err) => {
-  console.error('❌ Failed to start background worker:', err);
+  logger.error('❌ Failed to start background worker:', err);
   process.exit(1);
 });
