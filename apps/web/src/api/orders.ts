@@ -28,6 +28,7 @@ export interface ChangeRequest {
 export interface OrderItem {
   id: string;
   order_id: string;
+  project_id?: string | null;
   deal_id?: string;
   deal_name?: string;
   closing_sale_id: string;
@@ -46,6 +47,17 @@ export interface OrderItem {
   approval_status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   delivery_status: 'PENDING' | 'WAITING_DEPENDENCY' | 'READY_FOR_ASSIGNMENT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   payment_status: 'UNPAID' | 'PARTIALLY_PAID' | 'FULLY_PAID';
+  payment_plan?: {
+    id: string;
+    status: string;
+    installments: Array<{
+      id: string;
+      installment_number: number;
+      due_date: string;
+      gross_amount_due: number;
+      status: string;
+    }>;
+  } | null;
   created_at: string;
   requirements?: OrderItemRequirement[];
   changeRequests?: ChangeRequest[];

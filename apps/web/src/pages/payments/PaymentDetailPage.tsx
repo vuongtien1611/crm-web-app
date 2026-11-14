@@ -1,5 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Tag, Button, Typography, Spin, Table, Space, Modal, Descriptions, App } from 'antd';
+import {
+  Tag,
+  Button,
+  Typography,
+  Spin,
+  Table,
+  Space,
+  Modal,
+  Descriptions,
+  App,
+  Form,
+  Select,
+  InputNumber,
+} from 'antd';
 import {
   ArrowLeftOutlined,
   FileTextOutlined,
@@ -8,10 +21,15 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   SafetyCertificateOutlined,
-  LinkOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPaymentByIdApi, PaymentItem, AllocationItem } from '../../api/payments';
+import {
+  getPaymentByIdApi,
+  getAllocatableInstallmentsApi,
+  allocateConfirmedPaymentApi,
+  AllocatableInstallment,
+  PaymentItem,
+} from '../../api/payments';
 import { getStatusLabel, getPaymentMethodLabel, formatCurrency, formatDateTime } from '../../constants/labels';
 import { createRowActionHandler } from '../../utils/tableUtils';
 import {
@@ -21,6 +39,7 @@ import {
   DetailInfoCard,
   DetailRelatedList,
 } from '../../components/common/detail';
+import { FilePreview, FilePreviewSource } from '../../components/storage/FilePreview';
 
 const { Title, Text } = Typography;
 
@@ -31,6 +50,13 @@ export const PaymentDetailPage: React.FC = () => {
   const [payment, setPayment] = useState<PaymentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAllocation, setSelectedAllocation] = useState<any | null>(null);
+  const [allocationModalOpen, setAllocationModalOpen] = useState(false);
+  const [allocatableInstallments, setAllocatableInstallments] = useState<AllocatableInstallment[]>([]);
+  const [paymentRemaining, setPaymentRemaining] = useState(0);
+  const [allocationMax, setAllocationMax] = useState(0);
+  const [allocationLoading, setAllocationLoading] = useState(false);
+  const [allocationSubmitting, setAllocationSubmitting] = useState(false);
+  const [allocationForm] = Form.useForm();
 
   useEffect(() => {
     if (id) {
@@ -53,10 +79,65 @@ export const PaymentDetailPage: React.FC = () => {
     return <div style={{ padding: 24 }}>Không tìm thấy thông tin giao dịch thanh toán.</div>;
   }
 
+  const evidenceUrl = payment.evidence_url;
+  const evidenceSource: FilePreviewSource =
+    evidenceUrl && /^https?:\/\//i.test(evidenceUrl)
+      ? { type: 'direct', directUrl: evidenceUrl }
+      : { type: 'payment', paymentId: payment.id };
+  const evidenceFilename = evidenceUrl?.split(/[\\/]/).pop()?.split(/[?#]/)[0];
+
   const totalAllocated = payment.allocations?.reduce(
     (sum, a: any) => sum + (Number(a.gross_allocated_amount || a.grossAllocatedAmount) || 0),
     0
   ) || 0;
+  const unallocatedAmount = Math.max(0, Number(payment.gross_cash_amount) - totalAllocated);
+
+  const openAllocationModal = async () => {
+    if (!payment) return;
+    setAllocationLoading(true);
+    try {
+      const data = await getAllocatableInstallmentsApi(payment.id);
+      setPaymentRemaining(data.paymentRemaining);
+      setAllocatableInstallments(data.installments);
+      if (data.installments.length === 0) {
+        message.info('Không có đợt thanh toán nào còn dư nợ để phân bổ');
+        return;
+      }
+      const firstInstallment = data.installments[0];
+      const initialAmount = Math.min(data.paymentRemaining, firstInstallment.remaining_amount);
+      setAllocationMax(initialAmount);
+      allocationForm.setFieldsValue({
+        installmentId: firstInstallment.installment_id,
+        grossAllocatedAmount: initialAmount,
+      });
+      setAllocationModalOpen(true);
+    } catch (err: any) {
+      message.error(err.message || 'Không thể tải các đợt thanh toán còn dư nợ');
+    } finally {
+      setAllocationLoading(false);
+    }
+  };
+
+  const handleAllocatePayment = async () => {
+    if (!payment) return;
+    try {
+      const values = await allocationForm.validateFields();
+      setAllocationSubmitting(true);
+      await allocateConfirmedPaymentApi(payment.id, values);
+      message.success('Đã phân bổ khoản thanh toán');
+      setAllocationModalOpen(false);
+    } catch (err: any) {
+      if (err?.errorFields) return;
+      message.error(err.message || 'Không thể phân bổ khoản thanh toán');
+    } finally {
+      setAllocationSubmitting(false);
+    }
+    try {
+      setPayment(await getPaymentByIdApi(payment.id));
+    } catch {
+      message.error('Đã phân bổ nhưng không thể tải lại chi tiết thanh toán');
+    }
+  };
 
   const allocationColumns = [
     {
@@ -157,14 +238,22 @@ export const PaymentDetailPage: React.FC = () => {
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/payments')}>
               Quay lại
             </Button>
-            {payment.evidence_url && (
+            {payment.status === 'CONFIRMED' && unallocatedAmount > 0 && (
               <Button
                 type="primary"
-                icon={<LinkOutlined />}
-                onClick={() => window.open(payment.evidence_url, '_blank')}
+                loading={allocationLoading}
+                onClick={openAllocationModal}
               >
-                Xem chứng từ
+                Phân bổ khoản tiền
               </Button>
+            )}
+            {evidenceUrl && (
+              <FilePreview
+                source={evidenceSource}
+                filename={evidenceFilename}
+                buttonText="Xem chứng từ"
+                type="primary"
+              />
             )}
           </Space>
         }
@@ -220,7 +309,7 @@ export const PaymentDetailPage: React.FC = () => {
           </DetailRelatedList>
 
           {/* Section bằng chứng / chứng từ */}
-          {payment.evidence_url && (
+          {evidenceUrl && (
             <div className="vmax-card" style={{ padding: 20, marginTop: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div>
@@ -231,13 +320,12 @@ export const PaymentDetailPage: React.FC = () => {
                     File chứng từ hoặc ảnh chụp ủy nhiệm chi / chuyển khoản
                   </Text>
                 </div>
-                <Button
+                <FilePreview
+                  source={evidenceSource}
+                  filename={evidenceFilename}
+                  buttonText="Mở chứng từ"
                   type="primary"
-                  icon={<LinkOutlined />}
-                  onClick={() => window.open(payment.evidence_url, '_blank')}
-                >
-                  Mở chứng từ
-                </Button>
+                />
               </div>
               <div
                 style={{
@@ -253,7 +341,7 @@ export const PaymentDetailPage: React.FC = () => {
                 <FileTextOutlined style={{ fontSize: 24, color: '#0C6B37' }} />
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <Text strong ellipsis style={{ display: 'block', color: '#1E293B' }}>
-                    {payment.evidence_url}
+                    {evidenceUrl}
                   </Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     Bấm nút "Mở chứng từ" để kiểm tra tính hợp lệ
@@ -311,16 +399,84 @@ export const PaymentDetailPage: React.FC = () => {
               },
               {
                 label: 'Chứng từ đính kèm',
-                value: payment.evidence_url ? (
-                  <a href={payment.evidence_url} target="_blank" rel="noreferrer" style={{ color: '#0C6B37', fontWeight: 500 }}>
-                    <LinkOutlined /> Xem tài liệu
-                  </a>
+                value: evidenceUrl ? (
+                  <FilePreview
+                    source={evidenceSource}
+                    filename={evidenceFilename}
+                    buttonText="Xem tài liệu"
+                    size="small"
+                    type="link"
+                  />
                 ) : <Text type="secondary">Chưa tải lên</Text>
               },
             ]}
           />
         </div>
       </div>
+
+      {/* Modal chi tiết phân bổ */}
+      <Modal
+        title={`Phân bổ thanh toán #${payment.payment_code}`}
+        open={allocationModalOpen}
+        onCancel={() => setAllocationModalOpen(false)}
+        onOk={handleAllocatePayment}
+        confirmLoading={allocationSubmitting}
+        okText="Xác nhận phân bổ"
+        cancelText="Hủy"
+      >
+        <Form
+          form={allocationForm}
+          layout="vertical"
+          style={{ marginTop: 16 }}
+          onValuesChange={(changedValues) => {
+            if (changedValues.installmentId) {
+              const installment = allocatableInstallments.find(
+                (item) => item.installment_id === changedValues.installmentId,
+              );
+              if (installment) {
+                const maxAmount = Math.min(paymentRemaining, installment.remaining_amount);
+                setAllocationMax(maxAmount);
+                allocationForm.setFieldValue(
+                  'grossAllocatedAmount',
+                  maxAmount,
+                );
+              }
+            }
+          }}
+        >
+          <Descriptions bordered column={1} size="small" style={{ marginBottom: 16 }}>
+            <Descriptions.Item label="Chưa phân bổ">
+              <Text strong>{formatCurrency(paymentRemaining)}</Text>
+            </Descriptions.Item>
+          </Descriptions>
+          <Form.Item
+            name="installmentId"
+            label="Đợt thanh toán"
+            rules={[{ required: true, message: 'Chọn đợt cần phân bổ' }]}
+          >
+            <Select
+              options={allocatableInstallments.map((item) => ({
+                value: item.installment_id,
+                label: `${item.order_code} · ${item.service_name} · Đợt ${item.installment_number} · Còn ${formatCurrency(item.remaining_amount)}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="grossAllocatedAmount"
+            label="Số tiền phân bổ"
+            rules={[{ required: true, message: 'Nhập số tiền phân bổ' }]}
+          >
+            <InputNumber
+              min={0.01}
+              max={allocationMax}
+              precision={2}
+              style={{ width: '100%' }}
+              formatter={(value) => `${value ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={(value) => Number(String(value || '').replace(/,/g, ''))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Modal chi tiết phân bổ */}
       <Modal

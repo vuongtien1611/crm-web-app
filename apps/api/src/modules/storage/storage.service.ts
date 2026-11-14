@@ -256,6 +256,13 @@ export class StorageService {
     return await this.provider.getSignedUrl(key, expiresInSeconds);
   }
 
+  isLocalSignedUrlValid(key: string, expiresAt: string, signature: string): boolean {
+    return (
+      this.provider instanceof LocalStorageProvider &&
+      this.provider.isSignedUrlValid(key, expiresAt, signature)
+    );
+  }
+
   /**
    * Retrieve file buffer.
    */

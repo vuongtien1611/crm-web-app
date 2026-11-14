@@ -162,6 +162,26 @@ export interface QuerySubscriptionsParams {
   search?: string;
 }
 
+export interface EligibleSubscriptionOrderItem {
+  orderItemId: string;
+  orderCode: string;
+  orderStatus: string;
+  itemApprovalStatus: string;
+  customerName: string;
+  serviceName: string;
+  serviceCode: string;
+  netServiceValue: number;
+}
+
+export interface CreateSubscriptionInput {
+  orderItemId: string;
+  billingInterval: 'MONTH' | 'QUARTER' | 'YEAR' | 'CUSTOM';
+  intervalCount: number;
+  startDate: string;
+  endDate?: string;
+  autoRenew: boolean;
+}
+
 export async function getSubscriptionsApi(
   params?: QuerySubscriptionsParams,
 ): Promise<SubscriptionsListResponse> {
@@ -177,6 +197,28 @@ export async function getSubscriptionsApi(
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.message || 'Lỗi khi tải danh sách Subscription');
+  }
+  return response.json();
+}
+
+export async function getEligibleSubscriptionOrderItemsApi(): Promise<EligibleSubscriptionOrderItem[]> {
+  const response = await fetchWithAuth(buildApiUrl('/subscriptions/eligible-order-items'));
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể tải các mục dịch vụ đủ điều kiện');
+  }
+  return response.json();
+}
+
+export async function createSubscriptionApi(input: CreateSubscriptionInput): Promise<SubscriptionDetail> {
+  const response = await fetchWithAuth(buildApiUrl('/subscriptions'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể tạo hợp đồng định kỳ');
   }
   return response.json();
 }

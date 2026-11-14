@@ -409,7 +409,7 @@ export const DealDetailPage: React.FC = () => {
         <Col xs={24} lg={11}>
           <DetailActivityBox title="Nhật ký Hoạt động & Tương tác">
             <ActivityTimeline
-              leadId={deal.lead_id || ''}
+              dealId={deal.id}
               activities={deal.activities}
               onRefresh={fetchDetail}
             />

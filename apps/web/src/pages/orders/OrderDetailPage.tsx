@@ -10,6 +10,7 @@ import {
   Collapse,
   Divider,
   Modal,
+  DatePicker,
   Descriptions,
   Avatar,
   Alert,
@@ -33,7 +34,10 @@ import {
   MailOutlined,
   ExclamationCircleOutlined,
   EditOutlined,
+  FolderAddOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
+import dayjs, { Dayjs } from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import {
@@ -51,10 +55,12 @@ import {
   OrderDetail,
   OrderItem,
 } from '../../api/orders';
+import { createSingleInstallmentPlanApi } from '../../api/payments';
 import { OrderReviewModal } from '../../components/orders/OrderReviewModal';
 import { OrderAddItemModal } from '../../components/orders/OrderAddItemModal';
 import { OrderEditItemModal } from '../../components/orders/OrderEditItemModal';
 import { CreateChangeRequestModal } from '../../components/orders/CreateChangeRequestModal';
+import { AssignProjectModal } from '../../components/orders/AssignProjectModal';
 import { createRowNavigateHandler, createRowActionHandler } from '../../utils/tableUtils';
 import { getStatusLabel, formatCurrency, formatDateTime, formatDate } from '../../constants/labels';
 import {
@@ -77,6 +83,11 @@ export const OrderDetailPage: React.FC = () => {
     user?.roles?.some((r) => ['SALE', 'SALES_TEAM_LEADER', 'ADMIN', 'SUPER_ADMIN'].includes(r)) ||
     user?.permissions?.includes('ORDER_SUBMIT')
   );
+  const canAssignProject = Boolean(
+    user?.permissions?.includes('PROJECT_ASSIGN') &&
+    user?.roles?.some((r) => ['ADMIN', 'BOSS', 'DEV_TEAM_LEADER', 'SEO_TEAM_LEADER'].includes(r))
+  );
+  const canCreatePaymentPlan = Boolean(user?.permissions?.includes('PAYMENT_CONFIRM'));
   const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -97,6 +108,9 @@ export const OrderDetailPage: React.FC = () => {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<OrderItem | null>(null);
   const [editItemModalVisible, setEditItemModalVisible] = useState(false);
+  const [projectAssignItem, setProjectAssignItem] = useState<OrderItem | null>(null);
+  const [paymentPlanItem, setPaymentPlanItem] = useState<OrderItem | null>(null);
+  const [paymentPlanDueDate, setPaymentPlanDueDate] = useState<Dayjs | null>(dayjs('2026-11-13'));
 
   // Tải chi tiết đơn hàng - không unmount trang khi refresh ngầm
   const loadOrderDetail = async (isInitial = false) => {
@@ -267,6 +281,24 @@ export const OrderDetailPage: React.FC = () => {
       await loadOrderDetail(false);
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Không thể hủy mục dịch vụ');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreatePaymentPlan = async () => {
+    if (!paymentPlanItem || !paymentPlanDueDate || actionLoading) return;
+    setActionLoading(`payment-plan-${paymentPlanItem.id}`);
+    try {
+      await createSingleInstallmentPlanApi(
+        paymentPlanItem.id,
+        paymentPlanDueDate.format('YYYY-MM-DD'),
+      );
+      message.success('Đã tạo đợt thanh toán');
+      setPaymentPlanItem(null);
+      await loadOrderDetail(false);
+    } catch (err: any) {
+      message.error(err.message || 'Không thể tạo đợt thanh toán');
     } finally {
       setActionLoading(null);
     }
@@ -617,7 +649,16 @@ export const OrderDetailPage: React.FC = () => {
                   title: 'Thanh toán',
                   dataIndex: 'payment_status',
                   key: 'payment_status',
-                  render: (s: string) => <Tag color="purple">{getStatusLabel(s)}</Tag>,
+                  render: (s: string, r: OrderItem) => (
+                    <Space direction="vertical" size={2}>
+                      <Tag color="purple">{getStatusLabel(s)}</Tag>
+                      {r.payment_plan?.installments.map((installment) => (
+                        <Text key={installment.id} type="secondary" style={{ fontSize: 12 }}>
+                          Đợt {installment.installment_number}: {formatCurrency(installment.gross_amount_due)} · hạn {formatDate(installment.due_date)}
+                        </Text>
+                      ))}
+                    </Space>
+                  ),
                 },
                 {
                   title: 'Thao tác',
@@ -671,17 +712,50 @@ export const OrderDetailPage: React.FC = () => {
                         </>
                       )}
                       {r.approval_status === 'APPROVED' && (
-                        <Button
-                          size="small"
-                          icon={<FormOutlined />}
-                          disabled={!!actionLoading}
-                          onClick={() => {
-                            setSelectedItemId(r.id);
-                            setCrModalVisible(true);
-                          }}
-                        >
-                          Đổi yêu cầu (CR)
-                        </Button>
+                        <>
+                          {canCreatePaymentPlan && !r.payment_plan && r.payment_status !== 'FULLY_PAID' && (
+                            <Button
+                              size="small"
+                              icon={<CalendarOutlined />}
+                              disabled={!!actionLoading}
+                              onClick={() => {
+                                setPaymentPlanDueDate(dayjs('2026-11-13'));
+                                setPaymentPlanItem(r);
+                              }}
+                            >
+                              Tạo đợt thanh toán
+                            </Button>
+                          )}
+                          {r.project_id ? (
+                            <Button
+                              size="small"
+                              icon={<FolderAddOutlined />}
+                              onClick={() => navigate(`/projects/${r.project_id}`)}
+                            >
+                              Xem dự án
+                            </Button>
+                          ) : canAssignProject && ['PENDING', 'READY_FOR_ASSIGNMENT'].includes(r.delivery_status) ? (
+                            <Button
+                              size="small"
+                              icon={<FolderAddOutlined />}
+                              disabled={!!actionLoading}
+                              onClick={() => setProjectAssignItem(r)}
+                            >
+                              Tạo & phân công dự án
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="small"
+                            icon={<FormOutlined />}
+                            disabled={!!actionLoading}
+                            onClick={() => {
+                              setSelectedItemId(r.id);
+                              setCrModalVisible(true);
+                            }}
+                          >
+                            Đổi yêu cầu (CR)
+                          </Button>
+                        </>
                       )}
                       {r.approval_status !== 'CANCELLED' && (
                         <Button
@@ -1040,6 +1114,55 @@ export const OrderDetailPage: React.FC = () => {
           loadOrderDetail(false);
         }}
       />
+
+      <Modal
+        title="Tạo một đợt thanh toán"
+        open={!!paymentPlanItem}
+        onCancel={() => setPaymentPlanItem(null)}
+        onOk={handleCreatePaymentPlan}
+        confirmLoading={Boolean(paymentPlanItem && actionLoading === `payment-plan-${paymentPlanItem.id}`)}
+        okText="Tạo đợt"
+        cancelText="Hủy"
+      >
+        {paymentPlanItem && (
+          <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 16 }}>
+            <Text>
+              Dịch vụ: <Text strong>{paymentPlanItem.service_name}</Text>
+            </Text>
+            <Text>
+              Số tiền cả VAT:{' '}
+              <Text strong>
+                {formatCurrency(
+                  Number(paymentPlanItem.net_service_value) + Number(paymentPlanItem.vat_amount),
+                )}
+              </Text>
+            </Text>
+            <label htmlFor="payment-plan-due-date">Ngày đến hạn</label>
+            <DatePicker
+              id="payment-plan-due-date"
+              value={paymentPlanDueDate}
+              onChange={(date) => setPaymentPlanDueDate(date)}
+              format="DD/MM/YYYY"
+              style={{ width: '100%' }}
+            />
+            <Alert
+              type="info"
+              showIcon
+              message="Kế hoạch sẽ gồm duy nhất một đợt, bằng toàn bộ giá trị dịch vụ và VAT."
+            />
+          </Space>
+        )}
+      </Modal>
+
+      {projectAssignItem && (
+        <AssignProjectModal
+          visible
+          orderItemId={projectAssignItem.id}
+          serviceName={projectAssignItem.service_name || 'Dịch vụ'}
+          onClose={() => setProjectAssignItem(null)}
+          onSuccess={() => loadOrderDetail(false)}
+        />
+      )}
 
       {selectedItemId && (
         <CreateChangeRequestModal

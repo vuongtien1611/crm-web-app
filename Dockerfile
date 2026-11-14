@@ -62,6 +62,8 @@ RUN apk add --no-cache dumb-init curl
 
 ENV NODE_ENV=production
 ENV PORT=8080
+# Override when database schema and migration files are mounted elsewhere.
+ENV DATABASE_MIGRATIONS_DIR=/app/database
 
 # Switch to standard non-root user
 USER node
@@ -83,6 +85,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:${PORT:-8080}/api/healthz || exit 1
 
 # Default Entrypoint: API Service
-# For Worker Service: override CMD with ["dumb-init", "node", "apps/api/dist/src/worker.main.js"]
+# For Worker Service: override CMD with ["node", "apps/api/dist/worker.main.js"]
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "apps/api/dist/src/main.js"]
+CMD ["node", "apps/api/dist/main.js"]

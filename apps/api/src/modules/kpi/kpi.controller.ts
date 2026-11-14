@@ -5,6 +5,11 @@ import { RequirePermissions } from '../rbac/decorators/require-permissions.decor
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtPayload } from '../auth/guards/jwt-auth.guard';
 import { TeamsService } from '../teams/teams.service';
+import {
+  AuthorizationPrincipal,
+  AuthorizationService,
+  EmployeeScope,
+} from '../rbac/authorization.service';
 
 @Controller('kpi')
 @UseGuards(PermissionsGuard)
@@ -12,6 +17,7 @@ export class KpiController {
   constructor(
     private readonly kpiService: KpiService,
     private readonly teamsService: TeamsService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   @Get('events')
@@ -24,25 +30,13 @@ export class KpiController {
     @Query('targetPeriod') targetPeriod?: string,
     @Query('sourceType') sourceType?: string,
   ) {
-    const roles = user?.roles || [];
-
-    // Global access: ADMIN, BOSS only
-    const hasGlobalView = roles.includes('ADMIN') || roles.includes('BOSS');
-
-    // Team Leaders (Sales, Dev, SEO): team-scoped events only
-    const isTeamLeader = roles.some((r: string) =>
-      ['SALES_TEAM_LEADER', 'DEV_TEAM_LEADER', 'SEO_TEAM_LEADER'].includes(r),
-    );
-
-    if (!hasGlobalView && isTeamLeader && user.employeeId) {
-      const teamMemberIds = await this.resolveTeamMemberIds(user.employeeId);
-      const allowedIds = Array.from(new Set([...teamMemberIds, String(user.employeeId)]));
-
+    const scope = await this.resolveKpiScope(user);
+    if (scope.type === 'team') {
       let scopedEmployeeId: string | undefined = undefined;
-      let scopedEmployeeIdIn: string[] | undefined = allowedIds;
+      let scopedEmployeeIdIn: string[] | undefined = scope.employeeIds;
 
       if (employeeId) {
-        if (!allowedIds.includes(String(employeeId))) {
+        if (!this.authorizationService.canAccessEmployee(scope, employeeId)) {
           throw new ForbiddenException(
             'Trưởng nhóm chỉ có quyền xem KPI của thành viên trong nhóm mình phụ trách',
           );
@@ -61,13 +55,12 @@ export class KpiController {
       });
     }
 
-    // SALE, DEV, SEO: Own KPI events only
     let scopedEmployeeId = employeeId;
-    if (!hasGlobalView) {
-      if (!user.employeeId) {
+    if (scope.type === 'self' || scope.type === 'none') {
+      if (scope.type === 'none') {
         throw new ForbiddenException('Tài khoản chưa được liên kết với hồ sơ nhân viên');
       }
-      scopedEmployeeId = String(user.employeeId);
+      scopedEmployeeId = scope.employeeIds[0];
     }
 
     return await this.kpiService.findKpiEvents({
@@ -86,29 +79,13 @@ export class KpiController {
     @Query('period') period?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const roles = user?.roles || [];
-
-    // Global access: ADMIN, BOSS only
-    const hasGlobalView = roles.includes('ADMIN') || roles.includes('BOSS');
-
-    const isTeamLeader = roles.some((r: string) =>
-      ['SALES_TEAM_LEADER', 'DEV_TEAM_LEADER', 'SEO_TEAM_LEADER'].includes(r),
-    );
-
-    if (!hasGlobalView && isTeamLeader && user?.employeeId) {
-      // Verify target employee is in current team or self
-      const teamMemberIds = await this.resolveTeamMemberIds(user.employeeId);
-      const allowedIds = Array.from(new Set([...teamMemberIds, String(user.employeeId)]));
-      if (!allowedIds.includes(String(id))) {
-        throw new ForbiddenException(
-          'Trưởng nhóm chỉ có quyền xem KPI của thành viên trong nhóm mình phụ trách',
-        );
-      }
-    } else if (!hasGlobalView) {
-      // Individual: Own KPI only
-      if (!user?.employeeId || String(id) !== String(user.employeeId)) {
-        throw new ForbiddenException('Bạn chỉ có quyền xem chỉ số KPI cá nhân của chính mình');
-      }
+    const scope = await this.resolveKpiScope(user ?? {});
+    if (!this.authorizationService.canAccessEmployee(scope, id)) {
+      throw new ForbiddenException(
+        scope.type === 'team'
+          ? 'Trưởng nhóm chỉ có quyền xem KPI của thành viên trong nhóm mình phụ trách'
+          : 'Bạn chỉ có quyền xem chỉ số KPI cá nhân của chính mình',
+      );
     }
 
     return this.kpiService.getEmployeeKpiSummary(id, period);
@@ -120,5 +97,20 @@ export class KpiController {
     if (!team) return [];
     const members = await this.teamsService.getCurrentTeamMembers(team.id);
     return members.map((m) => String((m as any).id));
+  }
+
+  private async resolveKpiScope(user: AuthorizationPrincipal): Promise<EmployeeScope> {
+    const teamRoles = ['SALES_TEAM_LEADER', 'DEV_TEAM_LEADER', 'SEO_TEAM_LEADER'];
+    const isTeamLeader = this.authorizationService.hasAnyRole(user, teamRoles);
+    const teamEmployeeIds =
+      isTeamLeader && user.employeeId
+        ? await this.resolveTeamMemberIds(String(user.employeeId))
+        : [];
+
+    return this.authorizationService.resolveEmployeeScope(user, {
+      elevatedRoles: ['ADMIN', 'BOSS'],
+      teamRoles,
+      teamEmployeeIds,
+    });
   }
 }

@@ -79,6 +79,7 @@ export async function fetchPayrollPeriods(params?: { page?: number; limit?: numb
 export async function createPayrollPeriod(data: { periodKey: string; startDate: string; endDate: string }) {
   const res = await fetchWithAuth('/api/payroll/periods', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -154,6 +155,7 @@ export async function lockPayrollPeriod(id: string) {
 export async function addPayrollAdjustment(periodId: string, data: { employeeId: string; amount: number; reason: string }) {
   const res = await fetchWithAuth(`/api/payroll/periods/${periodId}/adjustments`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) {

@@ -24,6 +24,7 @@ import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { TeamsService } from '../teams/teams.service';
+import { AuthorizationPrincipal, AuthorizationService, EmployeeScope } from '../rbac/authorization.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -31,6 +32,7 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly teamsService: TeamsService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   @Get('services')
@@ -63,33 +65,13 @@ export class OrdersController {
     @Query('accountId') accountId?: string,
     @CurrentUser() user?: any,
   ) {
-    const roles: string[] = user?.roles || [];
-    const permissions: string[] = user?.permissions || [];
-
-    // Global access: ADMIN, BOSS (or explicit ORDER_VIEW_ALL permission)
-    const hasGlobalView =
-      roles.includes('ADMIN') ||
-      roles.includes('BOSS') ||
-      permissions.includes('ORDER_VIEW_ALL');
-
-    // SALES_TEAM_LEADER: team-scoped — only current team members' orders
-    if (!hasGlobalView && roles.includes('SALES_TEAM_LEADER') && user?.employeeId) {
-      const teamMemberIds = await this.resolveTeamMemberIds(user.employeeId);
-      return await this.ordersService.findOrders({
-        page: page ? Number(page) : undefined,
-        limit: limit ? Number(limit) : undefined,
-        q,
-        workflowStatus,
-        accountId,
-        closingSaleIdIn: teamMemberIds,
-      });
-    }
-
-    // SALE role (or other non-elevated): restricted to own closed order items
-    let closingSaleIdOnly: string | undefined = undefined;
-    if (!hasGlobalView && user?.employeeId) {
-      closingSaleIdOnly = String(user.employeeId);
-    }
+    const scope = await this.resolveOrderScope(user);
+    const scopeFilter =
+      scope.type === 'all'
+        ? {}
+        : scope.type === 'self'
+          ? { closingSaleIdOnly: scope.employeeIds[0] }
+          : { closingSaleIdIn: scope.employeeIds };
 
     return await this.ordersService.findOrders({
       page: page ? Number(page) : undefined,
@@ -97,7 +79,7 @@ export class OrdersController {
       q,
       workflowStatus,
       accountId,
-      closingSaleIdOnly,
+      ...scopeFilter,
     });
   }
 
@@ -105,45 +87,40 @@ export class OrdersController {
   @RequirePermissions('ORDER_READ')
   async findOrderById(@Param('id') id: string, @CurrentUser() user?: any) {
     const order = await this.ordersService.findOrderById(id);
-    const roles: string[] = user?.roles || [];
-    const permissions: string[] = user?.permissions || [];
-
-    // Global access: ADMIN, BOSS only
-    const hasGlobalView =
-      roles.includes('ADMIN') ||
-      roles.includes('BOSS') ||
-      permissions.includes('ORDER_VIEW_ALL');
-
-    if (hasGlobalView) return order;
-
-    // SALES_TEAM_LEADER: verify at least one order item belongs to a current team member
-    if (roles.includes('SALES_TEAM_LEADER') && user?.employeeId) {
-      const teamMemberIds = await this.resolveTeamMemberIds(user.employeeId);
-      const hasTeamMemberItem = order.items.some(
-        (item: any) => item.closing_sale_id && teamMemberIds.includes(String(item.closing_sale_id)),
+    const scope = await this.resolveOrderScope(user);
+    if (
+      scope.type !== 'all' &&
+      !order.items.some((item: any) =>
+        this.authorizationService.canAccessEmployee(scope, item.closing_sale_id),
+      )
+    ) {
+      throw new ForbiddenException(
+        scope.type === 'team'
+          ? 'Trưởng nhóm chỉ có quyền xem đơn hàng của thành viên trong nhóm mình phụ trách'
+          : 'You are not authorized to view this order',
       );
-      if (!hasTeamMemberItem) {
-        throw new ForbiddenException(
-          'Trưởng nhóm chỉ có quyền xem đơn hàng của thành viên trong nhóm mình phụ trách',
-        );
-      }
-      return order;
-    }
-
-    // SALE role: own order items only
-    if (user?.employeeId) {
-      const isOwnerOfItem = order.items.some(
-        (item: any) => String(item.closing_sale_id) === String(user.employeeId),
-      );
-      if (!isOwnerOfItem) {
-        throw new ForbiddenException('You are not authorized to view this order');
-      }
     }
 
     return order;
   }
 
   // ── Private helper ──────────────────────────────────────────────────────
+  private async resolveOrderScope(user?: AuthorizationPrincipal): Promise<EmployeeScope> {
+    const principal = user ?? {};
+    const isSalesLeader = this.authorizationService.hasAnyRole(principal, ['SALES_TEAM_LEADER']);
+    const teamEmployeeIds =
+      isSalesLeader && principal.employeeId !== undefined && principal.employeeId !== null
+        ? await this.resolveTeamMemberIds(String(principal.employeeId))
+        : [];
+
+    return this.authorizationService.resolveEmployeeScope(principal, {
+      elevatedRoles: ['ADMIN', 'BOSS'],
+      elevatedPermissions: ['ORDER_VIEW_ALL'],
+      teamRoles: ['SALES_TEAM_LEADER'],
+      teamEmployeeIds,
+    });
+  }
+
   private async resolveTeamMemberIds(employeeId: string): Promise<string[]> {
     const team = await this.teamsService.getCurrentLedTeam(employeeId);
     if (!team) return [];

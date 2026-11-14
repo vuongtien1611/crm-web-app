@@ -251,6 +251,22 @@ export async function getLeadDetailApi(id: string): Promise<LeadDetail> {
   return res.json();
 }
 
+export async function updateLeadInfoApi(
+  id: string,
+  data: { fullName: string; phone: string | null; email: string | null },
+): Promise<LeadItem> {
+  const res = await fetchWithAuth(`/api/leads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Failed to update lead information');
+  }
+  return res.json();
+}
+
 export async function createLeadApi(data: any): Promise<LeadItem> {
   const res = await fetchWithAuth('/api/leads', {
     method: 'POST',

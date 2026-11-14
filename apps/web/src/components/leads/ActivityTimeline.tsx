@@ -12,7 +12,8 @@ interface ActivityItem {
 }
 
 interface Props {
-  leadId: string;
+  leadId?: string;
+  dealId?: string;
   activities: ActivityItem[];
   onRefresh: () => void;
 }
@@ -45,27 +46,31 @@ const getActivityName = (type: string) => {
   }
 };
 
-export const ActivityTimeline: React.FC<Props> = ({ leadId, activities, onRefresh }) => {
+export const ActivityTimeline: React.FC<Props> = ({ leadId, dealId, activities, onRefresh }) => {
   const [activityType, setActivityType] = useState('CALL');
   const [resultNote, setResultNote] = useState('');
   const [nextFollowUpAt, setNextFollowUpAt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const handleAddActivity = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
 
     try {
       await createSalesActivityApi({
         leadId,
+        dealId,
         activityType,
         resultNote: resultNote || undefined,
         nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : undefined,
       });
       setResultNote('');
       setNextFollowUpAt('');
+      setSuccess('Đã lưu hoạt động chăm sóc.');
       onRefresh();
     } catch (err: any) {
       setError(err.message || 'Không thể lưu hoạt động chăm sóc');
@@ -83,6 +88,7 @@ export const ActivityTimeline: React.FC<Props> = ({ leadId, activities, onRefres
         </h3>
 
         {error && <div className="mb-3 p-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded text-xs">{error}</div>}
+        {success && <div className="mb-3 p-2 bg-green-500/10 border border-green-500/30 text-green-700 rounded text-xs">{success}</div>}
 
         <form onSubmit={handleAddActivity} className="space-y-3">
           <div className="flex flex-wrap gap-2">

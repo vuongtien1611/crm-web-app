@@ -454,7 +454,7 @@ export class ProjectsService {
             {
               eventType: 'PROJECT_BLOCKED',
               title: 'Dự án bị chặn (Blocked)',
-              content: `Dự án ${project.code || project.id} đã chuyển sang trạng thái BLOCKED. Lý do: ${reason || 'Không có'}`,
+              content: `Dự án ${project.project_name || project.id} đã chuyển sang trạng thái BLOCKED. Lý do: ${reason || 'Không có'}`,
               deepLinkUrl: `/projects/${project.id}`,
               entityType: 'PROJECT',
               entityId: String(project.id),
@@ -467,7 +467,7 @@ export class ProjectsService {
             {
               eventType: 'PROJECT_ACCEPTANCE',
               title: 'Dự án chuyển sang nghiệm thu (Acceptance)',
-              content: `Dự án ${project.code || project.id} đã chuyển sang trạng thái ACCEPTANCE.`,
+              content: `Dự án ${project.project_name || project.id} đã chuyển sang trạng thái ACCEPTANCE.`,
               deepLinkUrl: `/projects/${project.id}`,
               entityType: 'PROJECT',
               entityId: String(project.id),
@@ -799,7 +799,7 @@ export class ProjectsService {
           {
             eventType: 'PROJECT_COMPLETED',
             title: 'Dự án hoàn thành',
-            content: `Dự án ${project.code || project.id} đã hoàn tất nghiệm thu và chuyển sang trạng thái COMPLETED.`,
+            content: `Dự án ${project.project_name || project.id} đã hoàn tất nghiệm thu và chuyển sang trạng thái COMPLETED.`,
             deepLinkUrl: `/projects/${project.id}`,
             entityType: 'PROJECT',
             entityId: String(project.id),

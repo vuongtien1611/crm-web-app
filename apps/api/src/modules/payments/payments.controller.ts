@@ -12,6 +12,8 @@ import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { RejectPaymentDto } from './dto/reject-payment.dto';
+import { CreateSingleInstallmentPlanDto } from './dto/create-single-installment-plan.dto';
+import { AllocateConfirmedPaymentDto } from './dto/allocate-confirmed-payment.dto';
 import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { RequirePermissions } from '../rbac/decorators/require-permissions.decorator';
 
@@ -47,6 +49,12 @@ export class PaymentsController {
     return await this.paymentsService.findPaymentById(id);
   }
 
+  @Get(':id/allocatable-installments')
+  @RequirePermissions('PAYMENT_READ')
+  async findAllocatableInstallments(@Param('id') id: string) {
+    return await this.paymentsService.findAllocatableInstallments(id);
+  }
+
   @Post()
   @RequirePermissions('PAYMENT_CREATE')
   async createPayment(@Body() dto: CreatePaymentDto, @Req() req: any) {
@@ -63,6 +71,32 @@ export class PaymentsController {
   ) {
     const actorEmployeeId = req.user?.employeeId || req.user?.id || '1';
     return await this.paymentsService.confirmPayment(id, dto, String(actorEmployeeId));
+  }
+
+  @Post('order-items/:orderItemId/payment-plan/single-installment')
+  @RequirePermissions('PAYMENT_CONFIRM')
+  async createSingleInstallmentPlan(
+    @Param('orderItemId') orderItemId: string,
+    @Body() dto: CreateSingleInstallmentPlanDto,
+    @Req() req: any,
+  ) {
+    const actorEmployeeId = req.user?.employeeId || req.user?.id || '1';
+    return await this.paymentsService.createSingleInstallmentPlan(
+      orderItemId,
+      dto,
+      String(actorEmployeeId),
+    );
+  }
+
+  @Post(':id/allocations')
+  @RequirePermissions('PAYMENT_CONFIRM')
+  async allocateConfirmedPayment(
+    @Param('id') id: string,
+    @Body() dto: AllocateConfirmedPaymentDto,
+    @Req() req: any,
+  ) {
+    const actorEmployeeId = req.user?.employeeId || req.user?.id || '1';
+    return await this.paymentsService.allocateConfirmedPayment(id, dto, String(actorEmployeeId));
   }
 
   @Post(':id/reject')

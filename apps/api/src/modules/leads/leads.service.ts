@@ -6,6 +6,7 @@ import { UpdateLeadStatusDto, LeadStatus } from './dto/update-lead-status.dto';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 import { MarkFailedDto } from './dto/mark-failed.dto';
 import { ConvertLeadToDealDto } from './dto/convert-lead-to-deal.dto';
+import { UpdateLeadInfoDto } from './dto/update-lead-info.dto';
 import { TeamsService } from '../teams/teams.service';
 import { sql } from 'kysely';
 
@@ -416,6 +417,33 @@ export class LeadsService {
       assignmentHistory,
       activities,
     };
+  }
+
+  async updateLeadInfo(id: string, dto: UpdateLeadInfoDto) {
+    const fullName = dto.fullName.trim();
+    if (!fullName) {
+      throw new BadRequestException('Lead name is required');
+    }
+
+    const updateValues = {
+      full_name: fullName,
+      updated_at: new Date(),
+      ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
+      ...(dto.email !== undefined ? { email: dto.email?.trim() || null } : {}),
+    };
+
+    const updatedLead = await this.kysely.db
+      .updateTable('leads')
+      .set(updateValues)
+      .where('id', '=', id as any)
+      .returningAll()
+      .executeTakeFirst();
+
+    if (!updatedLead) {
+      throw new NotFoundException(`Lead [${id}] not found`);
+    }
+
+    return updatedLead;
   }
 
   async qualifyLead(id: string, dto: UpdateLeadQualityDto) {

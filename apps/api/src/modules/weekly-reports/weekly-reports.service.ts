@@ -268,7 +268,7 @@ export class WeeklyReportsService {
         created_by_employee_id: actorEmployeeId as any,
         week_start: dto.week_start as any,
         week_end: dto.week_end as any,
-        summary_work_done: dto.summary_work_done || null,
+        summary_work_done: dto.summary_work_done || '',
         summary_blockers: dto.summary_blockers || null,
         summary_next_week: dto.summary_next_week || null,
         leader_note: dto.leader_note || null,

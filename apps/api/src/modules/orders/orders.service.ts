@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { KyselyService, CrmTransaction, CrmDynamicRow } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
+import type { Services } from '../../database/db';
+import type { Selectable } from 'kysely';
 import { CreateOrderItemDto } from './dto/create-order-item.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateOrderItemDto } from './dto/update-order-item.dto';
@@ -391,8 +393,8 @@ export class OrdersService {
       const updates: {
         updated_at: Date;
         order_name?: string;
-        start_date?: string | Date | null;
-        end_date?: string | Date | null;
+        start_date?: string | null;
+        end_date?: string | null;
       } = { updated_at: new Date() };
       if (dto.orderName !== undefined) {
         updates.order_name = dto.orderName;
@@ -445,7 +447,7 @@ export class OrdersService {
 
       // Find or auto-create active service
       const serviceIdStr = String(dto.serviceId).replace(/^__NEW__:/, '').trim();
-      let service: CrmDynamicRow | undefined | null = null;
+      let service: Selectable<Services> | undefined;
 
       if (/^\d+$/.test(serviceIdStr)) {
         service = await trx
@@ -673,7 +675,7 @@ export class OrdersService {
       // Handle service change
       if (dto.serviceId && String(dto.serviceId) !== String(item.service_id)) {
         const serviceIdStr = String(dto.serviceId).replace(/^__NEW__:/, '').trim();
-        let service: CrmDynamicRow | undefined | null = null;
+        let service: Selectable<Services> | undefined;
 
         if (/^\d+$/.test(serviceIdStr)) {
           service = await trx
@@ -1346,9 +1348,11 @@ export class OrdersService {
       .innerJoin('services as s', 's.id', 'oi.service_id')
       .innerJoin('employees as closer', 'closer.id', 'oi.closing_sale_id')
       .leftJoin('deals as d', 'd.id', 'oi.deal_id')
+      .leftJoin('projects as p', 'p.order_item_id', 'oi.id')
       .select([
         'oi.id',
         'oi.order_id',
+        'p.id as project_id',
         'oi.deal_id',
         'd.deal_name',
         'oi.closing_sale_id',
@@ -1373,6 +1377,37 @@ export class OrdersService {
       .where('oi.order_id', '=', id as any)
       .orderBy('oi.created_at', 'asc')
       .execute();
+
+    const activePaymentPlans =
+      items.length > 0
+        ? await this.kysely.db
+            .selectFrom('order_item_payment_plans')
+            .select(['id', 'order_item_id', 'status', 'version'])
+            .where(
+              'order_item_id',
+              'in',
+              items.map((item) => item.id),
+            )
+            .where('status', 'in', ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'])
+            .execute()
+        : [];
+    const paymentPlanIds = activePaymentPlans.map((plan) => plan.id);
+    const paymentPlanInstallments =
+      paymentPlanIds.length > 0
+        ? await this.kysely.db
+            .selectFrom('payment_installments')
+            .select([
+              'id',
+              'payment_plan_id',
+              'installment_number',
+              sql<string>`to_char(due_date, 'YYYY-MM-DD')`.as('due_date'),
+              'gross_amount_due',
+              'status',
+            ])
+            .where('payment_plan_id', 'in', paymentPlanIds)
+            .orderBy('installment_number', 'asc')
+            .execute()
+        : [];
 
     // Enrich items with requirements and change requests
     const enrichedItems = await Promise.all(
@@ -1407,6 +1442,15 @@ export class OrdersService {
 
         return {
           ...item,
+          payment_plan:
+            activePaymentPlans
+              .filter((plan) => String(plan.order_item_id) === String(item.id))
+              .map((plan) => ({
+                ...plan,
+                installments: paymentPlanInstallments.filter(
+                  (installment) => String(installment.payment_plan_id) === String(plan.id),
+                ),
+              }))[0] || null,
           requirements,
           changeRequests,
         };

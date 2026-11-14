@@ -16,6 +16,17 @@ export interface PaymentProjectItem {
   name: string;
 }
 
+export interface AllocatableInstallment {
+  installment_id: string;
+  installment_number: number;
+  due_date: string;
+  gross_amount_due: number;
+  remaining_amount: number;
+  order_item_id: string;
+  service_name: string;
+  order_code: string;
+}
+
 export interface PaymentItem {
   id: string;
   payment_code: string;
@@ -30,6 +41,49 @@ export interface PaymentItem {
   allocations?: AllocationItem[];
   projects?: PaymentProjectItem[];
 }
+
+export const createSingleInstallmentPlanApi = async (orderItemId: string, dueDate: string) => {
+  const res = await fetchWithAuth(buildApiUrl(
+    `/payments/order-items/${orderItemId}/payment-plan/single-installment`,
+  ), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dueDate }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể tạo đợt thanh toán');
+  }
+  return res.json();
+};
+
+export const getAllocatableInstallmentsApi = async (paymentId: string): Promise<{
+  paymentRemaining: number;
+  installments: AllocatableInstallment[];
+}> => {
+  const res = await fetchWithAuth(buildApiUrl(`/payments/${paymentId}/allocatable-installments`));
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể tải các đợt thanh toán còn dư nợ');
+  }
+  return res.json();
+};
+
+export const allocateConfirmedPaymentApi = async (
+  paymentId: string,
+  data: { installmentId: string; grossAllocatedAmount: number },
+) => {
+  const res = await fetchWithAuth(buildApiUrl(`/payments/${paymentId}/allocations`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể phân bổ khoản thanh toán');
+  }
+  return res.json();
+};
 
 export const getPaymentsApi = async (params?: { page?: number; limit?: number; status?: string }) => {
   const query = new URLSearchParams();
