@@ -255,7 +255,7 @@ async function runBossAccountManagementTests() {
         testSessionId,
       );
     } catch (err: any) {
-      if (err instanceof ForbiddenException && err.getResponse()?.['code'] === 'PIN_REQUIRED') {
+      if (err instanceof ForbiddenException && (err.getResponse() as any)?.['code'] === 'PIN_REQUIRED') {
         pinBlocked = true;
       }
     }
@@ -462,7 +462,7 @@ async function runBossAccountManagementTests() {
       .where('boss_user_id', '=', freshBossUser.id as any)
       .executeTakeFirst();
     assert(
-      dbConfig?.pin_hash.startsWith('$argon2') && !dbConfig.pin_hash.includes('111222'),
+      Boolean(dbConfig?.pin_hash?.startsWith('$argon2') && !dbConfig?.pin_hash?.includes('111222')),
       'BOSS-24: PIN is stored as Argon2id hash, never plaintext',
     );
 

@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   NotFoundException,
   ConflictException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { KyselyService, CrmTransaction } from '../../database/kysely.service';
 import { RedisService } from '../../redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SessionService } from '../auth/services/session.service';
 import { sql } from 'kysely';
 import * as argon2 from 'argon2';
 import { QueryEmployeeAccountsDto } from './dto/query-employee-accounts.dto';
@@ -24,6 +26,7 @@ export class EmployeeAccountsService {
     private readonly kysely: KyselyService,
     private readonly redisService: RedisService,
     private readonly notificationsService: NotificationsService,
+    private readonly sessionService: SessionService,
   ) {}
 
   private get redis() {
@@ -591,6 +594,17 @@ export class EmployeeAccountsService {
         })
         .execute();
     });
+
+    // SEC-001: Revoke all user sessions if account was disabled or password was reset
+    if (employee.user_id && (updates.status === 'DISABLED' || passwordResetPerformed)) {
+      try {
+        await this.sessionService.revokeAllUserSessions(String(employee.user_id));
+      } catch (err: any) {
+        throw new InternalServerErrorException(
+          `Cập nhật tài khoản thành công nhưng không thể thu hồi phiên bảo mật trên Redis: ${err.message}`,
+        );
+      }
+    }
 
     return {
       success: true,

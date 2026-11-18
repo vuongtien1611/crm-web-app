@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { KyselyService } from '../../database/kysely.service';
@@ -706,7 +707,13 @@ export class OrganizationChartService {
 
     // 8. Revoke Redis sessions AFTER DB commit
     if (result.userId && (result.isCrossDepartment || result.wasLeader)) {
-      await this.sessionService.revokeAllUserSessions(result.userId);
+      try {
+        await this.sessionService.revokeAllUserSessions(result.userId);
+      } catch (err: any) {
+        throw new InternalServerErrorException(
+          `Luân chuyển nhân sự thành công nhưng không thể thu hồi phiên bảo mật trên Redis: ${err.message}`,
+        );
+      }
     }
 
     return result;

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, UnauthorizedException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
@@ -387,5 +387,14 @@ export class AuthService {
 
     // Update password and set must_change_password = FALSE
     await this.usersService.updatePassword(userId, newHash);
+
+    // SEC-001: Revoke all existing sessions so old tokens become invalid immediately
+    try {
+      await this.sessionService.revokeAllUserSessions(userId);
+    } catch (err: any) {
+      throw new InternalServerErrorException(
+        `Đổi mật khẩu thành công nhưng không thể thu hồi phiên bảo mật trên Redis: ${err.message}`,
+      );
+    }
   }
 }

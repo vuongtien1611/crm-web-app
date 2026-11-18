@@ -3,8 +3,10 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { KyselyService, CrmTransaction } from '../../database/kysely.service';
+import { SessionService } from '../auth/services/session.service';
 import { sql } from 'kysely';
 import * as argon2 from 'argon2';
 import {
@@ -28,7 +30,10 @@ export interface EmployeeRecord {
 
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly kysely: KyselyService) {}
+  constructor(
+    private readonly kysely: KyselyService,
+    private readonly sessionService: SessionService,
+  ) {}
 
   async findByUserId(userId: string | number): Promise<EmployeeRecord | null> {
     const db = this.kysely.db;
@@ -432,7 +437,7 @@ export class EmployeesService {
     },
     actorEmployeeId?: string | number | null,
   ) {
-    return await this.kysely.db.transaction().execute(async (trx) => {
+    const result = await this.kysely.db.transaction().execute(async (trx) => {
       // 1. Fetch current employee record
       const emp = await trx
         .selectFrom('employees')
@@ -510,8 +515,24 @@ export class EmployeesService {
         }
       }
 
-      return updatedEmp;
+      return {
+        updatedEmp,
+        userId: emp.user_id ? String(emp.user_id) : null,
+        needsRevocation: Boolean(dto.roleCode || (dto.status && ['RESIGNED', 'TERMINATED'].includes(dto.status))),
+      };
     });
+
+    if (result.userId && result.needsRevocation) {
+      try {
+        await this.sessionService.revokeAllUserSessions(result.userId);
+      } catch (err: any) {
+        throw new InternalServerErrorException(
+          `Cập nhật nhân viên thành công nhưng không thể thu hồi phiên bảo mật trên Redis: ${err.message}`,
+        );
+      }
+    }
+
+    return result.updatedEmp;
   }
 
   // --------------------------------------------------
@@ -522,7 +543,7 @@ export class EmployeesService {
     dto: ChangePositionDto,
     actorEmployeeId?: string | number | null,
   ) {
-    return await this.kysely.db.transaction().execute(async (trx) => {
+    const result = await this.kysely.db.transaction().execute(async (trx) => {
       // 1. Fetch current employee
       const emp = await trx
         .selectFrom('employees')
@@ -753,8 +774,22 @@ export class EmployeesService {
         },
         actionType,
         note: noteText,
+        userId: emp.user_id ? String(emp.user_id) : null,
       };
     });
+
+    // SEC-001: Revoke all user sessions after promotion/demotion/transfer so claims update immediately
+    if (result.userId) {
+      try {
+        await this.sessionService.revokeAllUserSessions(result.userId);
+      } catch (err: any) {
+        throw new InternalServerErrorException(
+          `Thay đổi chức vụ thành công nhưng không thể thu hồi phiên bảo mật trên Redis: ${err.message}`,
+        );
+      }
+    }
+
+    return result;
   }
 
   // --------------------------------------------------

@@ -348,7 +348,7 @@ async function runAccountIntegrationTests() {
       : false;
 
     assert(
-      isArgon2 && verifies && rawUser1?.must_change_password === true,
+      Boolean(isArgon2 && verifies && rawUser1?.must_change_password === true),
       'ACCOUNT-09: Password hashed with Argon2id and must_change_password = TRUE',
     );
 

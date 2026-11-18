@@ -6,12 +6,13 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PasswordService } from './services/password.service';
 import { SessionService } from './services/session.service';
+import { SessionModule } from './session.module';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Module({
-  imports: [UsersModule, EmployeesModule, RbacModule],
+  imports: [UsersModule, EmployeesModule, RbacModule, SessionModule],
   controllers: [AuthController],
-  providers: [AuthService, PasswordService, SessionService, JwtAuthGuard],
-  exports: [AuthService, PasswordService, SessionService, JwtAuthGuard],
+  providers: [AuthService, PasswordService, JwtAuthGuard],
+  exports: [AuthService, PasswordService, SessionModule, JwtAuthGuard],
 })
 export class AuthModule {}

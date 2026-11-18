@@ -6,6 +6,7 @@ import { CorrelationIdMiddleware } from './common/middleware/correlation-id.midd
 import { KyselyModule } from './database/kysely.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
+import { SessionModule } from './modules/auth/session.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { EmployeesModule } from './modules/employees/employees.module';
@@ -44,6 +45,7 @@ import { PermissionsGuard } from './modules/rbac/guards/permissions.guard';
     }),
     KyselyModule,
     RedisModule,
+    SessionModule,
     HealthModule,
     AuthModule,
     UsersModule,
