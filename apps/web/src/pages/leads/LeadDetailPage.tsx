@@ -35,6 +35,7 @@ import { getLeadDetailApi, updateLeadStatusApi, markLeadFailedApi, restoreLeadCo
 import { LeadQualifyModal } from '../../components/leads/LeadQualifyModal';
 import { LeadAssignModal } from '../../components/leads/LeadAssignModal';
 import { LeadConvertDealModal } from '../../components/leads/LeadConvertDealModal';
+import { LeadEditModal } from '../../components/leads/LeadEditModal';
 import { DealEditQuickModal } from '../../components/deals/DealEditQuickModal';
 import { ActivityTimeline } from '../../components/leads/ActivityTimeline';
 import { formatDate, formatDateTime, getStatusLabel } from '../../constants/labels';
@@ -56,6 +57,7 @@ export const LeadDetailPage: React.FC = () => {
     user?.roles?.some((r) => ['ADMIN', 'BOSS', 'SUPER_ADMIN', 'SALES_TEAM_LEADER'].includes(r)) ||
     user?.permissions?.includes('LEAD_ASSIGN')
   );
+  const canEditLead = Boolean(user?.permissions?.includes('LEAD_UPDATE'));
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -69,6 +71,7 @@ export const LeadDetailPage: React.FC = () => {
   const [isQualifyOpen, setIsQualifyOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [isConvertOpen, setIsConvertOpen] = useState(false);
+  const [isEditLeadOpen, setIsEditLeadOpen] = useState(false);
   const [isEditDealOpen, setIsEditDealOpen] = useState(false);
   const [isMarkFailedOpen, setIsMarkFailedOpen] = useState(false);
   const [restoringConverted, setRestoringConverted] = useState(false);
@@ -219,6 +222,15 @@ export const LeadDetailPage: React.FC = () => {
         }
         actions={
           <>
+            {canEditLead && (
+              <Button
+                icon={<EditOutlined />}
+                onClick={() => setIsEditLeadOpen(true)}
+              >
+                Chỉnh sửa thông tin
+              </Button>
+            )}
+
             <Button
               icon={<StarOutlined />}
               onClick={() => setIsQualifyOpen(true)}
@@ -696,6 +708,15 @@ export const LeadDetailPage: React.FC = () => {
         currentSaleId={lead.assigned_sale_id}
         onClose={() => setIsAssignOpen(false)}
         onSuccess={() => fetchDetail(false)}
+      />
+
+      <LeadEditModal
+        isOpen={isEditLeadOpen}
+        lead={lead}
+        onClose={() => setIsEditLeadOpen(false)}
+        onSuccess={() => {
+          void fetchDetail(false);
+        }}
       />
 
       <LeadConvertDealModal

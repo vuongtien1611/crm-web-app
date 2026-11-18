@@ -34,6 +34,7 @@ import { DynamicOptionsModule } from './modules/dynamic-options/dynamic-options.
 import { EmployeeAccountsModule } from './modules/employee-accounts/employee-accounts.module';
 import { OrganizationChartModule } from './modules/organization-chart/organization-chart.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from './modules/rbac/guards/permissions.guard';
 
 @Module({
   imports: [
@@ -76,6 +77,10 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
   ],
 })

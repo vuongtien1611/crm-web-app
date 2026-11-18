@@ -257,7 +257,7 @@ async function runPhaseLNotificationsSuite() {
       (n) => n.event_type === 'ORDER_PENDING_APPROVAL' && String(n.entity_id) === String(order.id),
     );
     assert(!!orderNotif, 'NT-01: Order PENDING_APPROVAL creates in-app notification for BOSS', `found=${!!orderNotif}`);
-    assert(orderNotif.employee_id === String(bossEmp.id), 'NT-01: Notification recipient is Boss');
+    assert(orderNotif?.employee_id === String(bossEmp.id), 'NT-01: Notification recipient is Boss');
 
     // ----------------------------------------------------------------
     // NT-02: PAYMENT PENDING -> BOSS NHẬN
@@ -322,7 +322,7 @@ async function runPhaseLNotificationsSuite() {
       (n) => n.event_type === 'PROJECT_ASSIGNED' && String(n.entity_id) === String(projectResult.project.id),
     );
     assert(!!projectAssignedNotif, 'NT-03: Project assignment creates in-app notification for primary assignee', `found=${!!projectAssignedNotif}`);
-    assert(projectAssignedNotif.employee_id === String(devEmp.id), 'NT-03: Assignee is recipient');
+    assert(projectAssignedNotif?.employee_id === String(devEmp.id), 'NT-03: Assignee is recipient');
 
     // ----------------------------------------------------------------
     // NT-04: LEAD ASSIGNMENT -> SALE NHẬN
@@ -376,7 +376,7 @@ async function runPhaseLNotificationsSuite() {
       (n) => n.event_type === 'DAILY_REPORT_SUPPORT_NEEDED',
     );
     assert(!!supportNotif, 'NT-05: Daily report support_needed routes notification to current Team Leader', `found=${!!supportNotif}`);
-    assert(supportNotif.employee_id === String(leaderEmp.id), 'NT-05: Leader is recipient');
+    assert(supportNotif?.employee_id === String(leaderEmp.id), 'NT-05: Leader is recipient');
 
     // ----------------------------------------------------------------
     // NT-06: RECIPIENT ISOLATION
@@ -400,7 +400,7 @@ async function runPhaseLNotificationsSuite() {
     const firstUnread = devNotifsAll.data.find((n) => !n.is_read);
     assert(!!firstUnread, 'NT-07: Unread notification found');
 
-    const marked = await notifService.markAsRead(String(firstUnread.id), String(devEmp.id));
+    const marked = await notifService.markAsRead(String(firstUnread!.id), String(devEmp.id));
     assert(marked.is_read === true, 'NT-07: Notification is marked as read');
 
     const newUnread = await notifService.getUnreadCount(String(devEmp.id));
@@ -451,7 +451,7 @@ async function runPhaseLNotificationsSuite() {
     // Boss tries to mark Dev's personal notification as read using Dev's notification id but Boss's actor id
     let preventedUnauthorizedRead = false;
     try {
-      await notifService.markAsRead(String(projectAssignedNotif.id), String(bossEmp.id));
+      await notifService.markAsRead(String(projectAssignedNotif!.id), String(bossEmp.id));
     } catch (e: any) {
       if (e instanceof NotFoundException || e instanceof ForbiddenException) {
         preventedUnauthorizedRead = true;

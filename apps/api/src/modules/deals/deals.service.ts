@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { KyselyService, CrmDynamicRow } from '../../database/kysely.service';
+import { KyselyService } from '../../database/kysely.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { AssignDealDto } from './dto/assign-deal.dto';
@@ -401,7 +401,7 @@ export class DealsService {
         .executeTakeFirst();
 
       // 4. Look up Active Order FOR UPDATE (Statuses: DRAFT, PENDING_APPROVAL, NEED_MORE_INFO, APPROVED, IN_PROGRESS)
-      let activeOrder: CrmDynamicRow | undefined = await trx
+      let activeOrder = await trx
         .selectFrom('orders')
         .selectAll()
         .where('account_id', '=', deal.account_id)
@@ -459,7 +459,7 @@ export class DealsService {
       }
 
       // 6. Find or create default active Service
-      let service: CrmDynamicRow | undefined = await trx
+      let service = await trx
         .selectFrom('services')
         .selectAll()
         .where('is_active', '=', true)
@@ -480,7 +480,7 @@ export class DealsService {
       }
 
       // 7. Find or create default requirement template
-      let template: CrmDynamicRow | undefined = await trx
+      let template = await trx
         .selectFrom('service_requirement_templates')
         .selectAll()
         .where('service_id', '=', service.id)

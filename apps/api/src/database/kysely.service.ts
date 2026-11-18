@@ -2,14 +2,12 @@ import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Kysely, PostgresDialect, Transaction } from 'kysely';
 import { Pool, PoolConfig } from 'pg';
+import type { DB } from './db';
 
 /**
- * Shared dynamic Kysely schema bridge until full generated DB table interfaces
- * (kysely-codegen) are adopted across all modules (AUD-016).
+ * Database interfaces are generated from the migrated PostgreSQL schema.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type CrmDynamicRow = Record<string, any>;
-export type CrmDatabase = Record<string, CrmDynamicRow>;
+export type CrmDatabase = DB;
 export type CrmTransaction = Transaction<CrmDatabase>;
 
 @Injectable()

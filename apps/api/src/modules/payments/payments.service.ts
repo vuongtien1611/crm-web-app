@@ -1,8 +1,12 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Optional } from '@nestjs/common';
-import { KyselyService, CrmTransaction, CrmDynamicRow } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
+import type { PaymentInstallments } from '../../database/db';
+import type { Selectable } from 'kysely';
 import { CreatePaymentDto, AllocationItemDto } from './dto/create-payment.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { RejectPaymentDto } from './dto/reject-payment.dto';
+import { CreateSingleInstallmentPlanDto } from './dto/create-single-installment-plan.dto';
+import { AllocateConfirmedPaymentDto } from './dto/allocate-confirmed-payment.dto';
 import { ProjectsService } from '../projects/projects.service';
 import { CommissionEligibilityService } from '../commissions/services/commission-eligibility.service';
 import { KpiEvaluationService } from '../kpi/services/kpi-evaluation.service';
@@ -121,7 +125,7 @@ export class PaymentsService {
         (a, b) => Number(a) - Number(b),
       );
 
-      let lockedInstallmentsMap: Record<string, CrmDynamicRow> = {};
+      const lockedInstallmentsMap: Record<string, Selectable<PaymentInstallments>> = {};
 
       if (installmentIds.length > 0) {
         const lockedInstallments = await trx
@@ -347,6 +351,294 @@ export class PaymentsService {
     });
   }
 
+  async createSingleInstallmentPlan(
+    orderItemId: string,
+    dto: CreateSingleInstallmentPlanDto,
+    actorEmployeeId: string,
+  ) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const orderItem = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', orderItemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!orderItem) {
+        throw new NotFoundException(`Order item #${orderItemId} not found`);
+      }
+      if (orderItem.approval_status !== 'APPROVED') {
+        throw new BadRequestException('Only approved order items can have a payment plan');
+      }
+      if (orderItem.payment_status === 'FULLY_PAID') {
+        throw new BadRequestException('A fully paid order item cannot receive a payment plan');
+      }
+
+      const previousPlans = await trx
+        .selectFrom('order_item_payment_plans')
+        .select(['id', 'version', 'status'])
+        .where('order_item_id', '=', orderItem.id)
+        .orderBy('version', 'desc')
+        .execute();
+      if (previousPlans.some((plan) => ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(plan.status))) {
+        throw new BadRequestException('This order item already has an active payment plan');
+      }
+
+      const grossAmountDue = Number(orderItem.net_service_value) + Number(orderItem.vat_amount);
+      if (!Number.isFinite(grossAmountDue) || grossAmountDue <= 0) {
+        throw new BadRequestException('Order item must have a positive gross amount');
+      }
+
+      const [plan] = await trx
+        .insertInto('order_item_payment_plans')
+        .values({
+          order_item_id: orderItem.id,
+          version: (previousPlans[0]?.version || 0) + 1,
+          status: 'APPROVED',
+          created_by_employee_id: actorEmployeeId as any,
+          config_snapshot: {
+            type: 'SINGLE_INSTALLMENT',
+            grossAmountDue,
+            dueDate: dto.dueDate,
+          },
+          approved_at: new Date(),
+        })
+        .returningAll()
+        .execute();
+
+      const [installment] = await trx
+        .insertInto('payment_installments')
+        .values({
+          payment_plan_id: plan.id,
+          installment_number: 1,
+          due_date: dto.dueDate,
+          gross_amount_due: grossAmountDue as any,
+          status: 'PENDING',
+        })
+        .returningAll()
+        .execute();
+
+      await trx
+        .insertInto('audit_logs')
+        .values({
+          actor_employee_id: actorEmployeeId as any,
+          action: 'PAYMENT_PLAN_CREATE',
+          entity_type: 'ORDER_ITEM_PAYMENT_PLAN',
+          entity_id: plan.id,
+          payload_before_sanitized: null,
+          payload_after_sanitized: JSON.stringify({
+            orderItemId: String(orderItem.id),
+            installmentId: String(installment.id),
+            grossAmountDue,
+            dueDate: dto.dueDate,
+          }),
+        })
+        .execute();
+
+      return { plan, installment };
+    });
+  }
+
+  async allocateConfirmedPayment(
+    paymentId: string,
+    dto: AllocateConfirmedPaymentDto,
+    actorEmployeeId: string,
+  ) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const payment = await trx
+        .selectFrom('payments')
+        .selectAll()
+        .where('id', '=', paymentId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!payment) {
+        throw new NotFoundException(`Payment #${paymentId} not found`);
+      }
+      if (payment.status !== 'CONFIRMED') {
+        throw new BadRequestException('Only confirmed payments can be allocated');
+      }
+
+      const installment = await trx
+        .selectFrom('payment_installments')
+        .selectAll()
+        .where('id', '=', dto.installmentId as any)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!installment) {
+        throw new NotFoundException(`Installment #${dto.installmentId} not found`);
+      }
+
+      const plan = await trx
+        .selectFrom('order_item_payment_plans')
+        .selectAll()
+        .where('id', '=', installment.payment_plan_id)
+        .executeTakeFirst();
+      if (!plan || plan.status !== 'APPROVED') {
+        throw new BadRequestException('The installment does not belong to an approved payment plan');
+      }
+
+      const orderItem = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', plan.order_item_id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!orderItem) {
+        throw new NotFoundException('The order item for this installment no longer exists');
+      }
+
+      const paymentAllocations = await trx
+        .selectFrom('payment_allocations')
+        .select((eb) => eb.fn.sum<number>('gross_allocated_amount').as('total'))
+        .where('payment_id', '=', payment.id)
+        .executeTakeFirst();
+      const paymentRemaining = Number(payment.gross_cash_amount) - Number(paymentAllocations?.total || 0);
+
+      const installmentAllocations = await trx
+        .selectFrom('payment_allocations')
+        .innerJoin('payments', 'payments.id', 'payment_allocations.payment_id')
+        .select((eb) => eb.fn.sum<number>('payment_allocations.gross_allocated_amount').as('total'))
+        .where('payment_allocations.installment_id', '=', installment.id)
+        .where('payments.status', '=', 'CONFIRMED')
+        .executeTakeFirst();
+      const installmentRemaining =
+        Number(installment.gross_amount_due) - Number(installmentAllocations?.total || 0);
+      const grossAmount = Number(dto.grossAllocatedAmount);
+
+      if (!Number.isFinite(grossAmount) || grossAmount <= 0) {
+        throw new BadRequestException('Allocation amount must be greater than 0');
+      }
+      if (grossAmount > paymentRemaining) {
+        throw new BadRequestException('Allocation exceeds the unallocated amount of this payment');
+      }
+      if (grossAmount > installmentRemaining) {
+        throw new BadRequestException('Allocation exceeds the remaining amount due for this installment');
+      }
+
+      const grossItemAmount = Number(orderItem.net_service_value) + Number(orderItem.vat_amount);
+      const vatAllocatedAmount =
+        grossItemAmount > 0
+          ? Math.round((grossAmount * Number(orderItem.vat_amount) / grossItemAmount) * 100) / 100
+          : 0;
+      const confirmedAt = new Date();
+      const [allocation] = await trx
+        .insertInto('payment_allocations')
+        .values({
+          payment_id: payment.id,
+          installment_id: installment.id,
+          closing_sale_id: orderItem.closing_sale_id,
+          gross_allocated_amount: grossAmount as any,
+          vat_allocated_amount: vatAllocatedAmount as any,
+          service_amount: (grossAmount - vatAllocatedAmount) as any,
+          net_eligible_amount: (grossAmount - vatAllocatedAmount) as any,
+          confirmed_at: confirmedAt,
+        })
+        .returningAll()
+        .execute();
+
+      const confirmedInstallmentAllocations = await trx
+        .selectFrom('payment_allocations')
+        .innerJoin('payments', 'payments.id', 'payment_allocations.payment_id')
+        .select((eb) => eb.fn.sum<number>('payment_allocations.gross_allocated_amount').as('total'))
+        .where('payment_allocations.installment_id', '=', installment.id)
+        .where('payments.status', '=', 'CONFIRMED')
+        .executeTakeFirst();
+      const totalPaid = Number(confirmedInstallmentAllocations?.total || 0);
+      const installmentStatus =
+        totalPaid >= Number(installment.gross_amount_due)
+          ? 'PAID'
+          : totalPaid > 0
+            ? 'PARTIALLY_PAID'
+            : 'PENDING';
+
+      await trx
+        .updateTable('payment_installments')
+        .set({ status: installmentStatus })
+        .where('id', '=', installment.id)
+        .execute();
+
+      if (installment.service_period_id) {
+        const periodInstallments = await trx
+          .selectFrom('payment_installments')
+          .select(['id', 'status'])
+          .where('service_period_id', '=', installment.service_period_id)
+          .execute();
+        const allPaid = periodInstallments.every((item) => item.status === 'PAID');
+        const anyPaid = periodInstallments.some((item) =>
+          ['PAID', 'PARTIALLY_PAID'].includes(item.status),
+        );
+        await trx
+          .updateTable('service_periods')
+          .set({ payment_status: allPaid ? 'FULLY_PAID' : anyPaid ? 'PARTIALLY_PAID' : 'PENDING' })
+          .where('id', '=', installment.service_period_id)
+          .execute();
+      }
+
+      const planInstallments = await trx
+        .selectFrom('payment_installments')
+        .select(['id', 'status'])
+        .where('payment_plan_id', '=', plan.id)
+        .execute();
+      const allPlanInstallmentsPaid = planInstallments.every((item) => item.status === 'PAID');
+      const anyPlanInstallmentPaid = planInstallments.some((item) =>
+        ['PAID', 'PARTIALLY_PAID'].includes(item.status),
+      );
+      const itemPaymentStatus = allPlanInstallmentsPaid
+        ? 'FULLY_PAID'
+        : anyPlanInstallmentPaid
+          ? 'PARTIALLY_PAID'
+          : 'UNPAID';
+
+      await trx
+        .updateTable('order_items')
+        .set({ payment_status: itemPaymentStatus })
+        .where('id', '=', orderItem.id)
+        .execute();
+
+      if (this.kpiEvaluationService) {
+        await this.kpiEvaluationService.evaluatePaymentAllocationKpi(
+          trx,
+          String(allocation.id),
+          actorEmployeeId,
+        );
+      }
+      if (this.commissionEligibilityService) {
+        await this.commissionEligibilityService.evaluateOrderItemCommissions(
+          trx,
+          String(orderItem.id),
+          actorEmployeeId,
+        );
+      }
+      if (itemPaymentStatus === 'FULLY_PAID') {
+        await this.evaluateDependentProjects(trx, String(orderItem.id), actorEmployeeId);
+      }
+
+      await trx
+        .insertInto('audit_logs')
+        .values({
+          actor_employee_id: actorEmployeeId as any,
+          action: 'PAYMENT_ALLOCATE',
+          entity_type: 'PAYMENT',
+          entity_id: payment.id,
+          payload_before_sanitized: JSON.stringify({
+            allocatedAmount: Number(paymentAllocations?.total || 0),
+            paymentStatus: payment.status,
+          }),
+          payload_after_sanitized: JSON.stringify({
+            allocationId: String(allocation.id),
+            installmentId: String(installment.id),
+            grossAllocatedAmount: grossAmount,
+            installmentStatus,
+            itemPaymentStatus,
+          }),
+        })
+        .execute();
+
+      return allocation;
+    });
+  }
+
   // --------------------------------------------------
   // REJECT PAYMENT (BOSS ONLY)
   // Sets status to REJECTED. Keeps record history intact.
@@ -520,6 +812,92 @@ export class PaymentsService {
     return {
       ...payment,
       allocations,
+    };
+  }
+
+  async findAllocatableInstallments(paymentId: string) {
+    const payment = await this.kysely.db
+      .selectFrom('payments')
+      .select(['id', 'status', 'gross_cash_amount'])
+      .where('id', '=', paymentId as any)
+      .executeTakeFirst();
+    if (!payment) {
+      throw new NotFoundException(`Payment #${paymentId} not found`);
+    }
+    if (payment.status !== 'CONFIRMED') {
+      throw new BadRequestException('Only confirmed payments can be allocated');
+    }
+
+    const currentPaymentAllocations = await this.kysely.db
+      .selectFrom('payment_allocations')
+      .select((eb) => eb.fn.sum<number>('gross_allocated_amount').as('total'))
+      .where('payment_id', '=', payment.id)
+      .executeTakeFirst();
+    const paymentRemaining =
+      Number(payment.gross_cash_amount) - Number(currentPaymentAllocations?.total || 0);
+
+    if (paymentRemaining <= 0) {
+      return { paymentRemaining: 0, installments: [] };
+    }
+
+    const installments = await this.kysely.db
+      .selectFrom('payment_installments as pi')
+      .innerJoin('order_item_payment_plans as plan', 'plan.id', 'pi.payment_plan_id')
+      .innerJoin('order_items as oi', 'oi.id', 'plan.order_item_id')
+      .innerJoin('orders as o', 'o.id', 'oi.order_id')
+      .innerJoin('services as s', 's.id', 'oi.service_id')
+      .select([
+        'pi.id as installment_id',
+        'pi.installment_number',
+        sql<string>`to_char(pi.due_date, 'YYYY-MM-DD')`.as('due_date'),
+        'pi.gross_amount_due',
+        'pi.status',
+        'oi.id as order_item_id',
+        's.name as service_name',
+        'o.order_code',
+      ])
+      .where('plan.status', '=', 'APPROVED')
+      .where('oi.approval_status', '=', 'APPROVED')
+      .orderBy('pi.due_date', 'asc')
+      .execute();
+
+    const installmentIds = installments.map((installment) => installment.installment_id);
+    const confirmedAllocations =
+      installmentIds.length > 0
+        ? await this.kysely.db
+            .selectFrom('payment_allocations as pa')
+            .innerJoin('payments as p', 'p.id', 'pa.payment_id')
+            .select(['pa.installment_id'])
+            .select((eb) => eb.fn.sum<number>('pa.gross_allocated_amount').as('total'))
+            .where('pa.installment_id', 'in', installmentIds)
+            .where('p.status', '=', 'CONFIRMED')
+            .groupBy('pa.installment_id')
+            .execute()
+        : [];
+    const allocatedByInstallment = new Map(
+      confirmedAllocations.map((allocation) => [
+        String(allocation.installment_id),
+        Number(allocation.total || 0),
+      ]),
+    );
+    const allocatableInstallments: Array<
+      (typeof installments)[number] & { remaining_amount: number }
+    > = [];
+    for (const installment of installments) {
+      const remainingAmount =
+        Number(installment.gross_amount_due) -
+        (allocatedByInstallment.get(String(installment.installment_id)) || 0);
+      if (remainingAmount > 0) {
+        allocatableInstallments.push({
+          ...installment,
+          remaining_amount: remainingAmount,
+        });
+      }
+    }
+
+    return {
+      paymentRemaining,
+      installments: allocatableInstallments,
     };
   }
 

@@ -722,6 +722,7 @@ export const LeadsListPage: React.FC = () => {
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelect(lead.id)}
+                          onClick={(e) => e.stopPropagation()}
                           style={{ width: 16, height: 16, accentColor: '#0C6B37', cursor: 'pointer' }}
                           aria-label={`Chọn lead ${lead.full_name}`}
                         />
@@ -933,6 +934,7 @@ export const LeadsListPage: React.FC = () => {
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleSelect(lead.id)}
+                            onClick={(e) => e.stopPropagation()}
                             style={{ width: 16, height: 16, accentColor: '#0C6B37', cursor: 'pointer' }}
                             aria-label={`Chọn lead ${lead.full_name}`}
                           />

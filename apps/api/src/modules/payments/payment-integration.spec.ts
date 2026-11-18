@@ -527,6 +527,106 @@ async function runPaymentIntegrationTests() {
     const receivableSp = await paymentsService.calculateReceivable(String(spItem.id));
     assert(receivableSp === 0, 'PAYMENT-28: Historical plan allocations are not double-subtracted when calculating receivable');
 
+    // --------------------------------------------------
+    // PAYMENT-29: Create one installment and allocate a confirmed payment afterward
+    // --------------------------------------------------
+    const planItem = await kysely.db
+      .selectFrom('order_items')
+      .selectAll()
+      .where('id', '=', accItem.id)
+      .executeTakeFirstOrThrow();
+    const expectedGrossDue = Number(planItem.net_service_value) + Number(planItem.vat_amount);
+    const createdPlan = await paymentsService.createSingleInstallmentPlan(
+      String(planItem.id),
+      { dueDate: '2026-11-13' },
+      String(boss.id),
+    );
+    const orderWithPaymentPlan = await ordersService.findOrderById(String(order.id));
+    const visiblePlanItem = orderWithPaymentPlan.items.find(
+      (item: any) => String(item.id) === String(planItem.id),
+    );
+    const visibleDueDate = visiblePlanItem?.payment_plan?.installments?.[0]?.due_date;
+    assert(
+      String(visibleDueDate).slice(0, 10) === '2026-11-13',
+      'PAYMENT-29A: Order detail exposes the created payment plan and due date',
+      JSON.stringify(visiblePlanItem?.payment_plan),
+    );
+    let duplicatePlanBlocked = false;
+    try {
+      await paymentsService.createSingleInstallmentPlan(
+        String(planItem.id),
+        { dueDate: '2026-11-13' },
+        String(boss.id),
+      );
+    } catch (err: any) {
+      duplicatePlanBlocked = err.message.includes('already has an active payment plan');
+    }
+    assert(duplicatePlanBlocked, 'PAYMENT-31: Duplicate active payment plan creation is blocked');
+
+    const unallocatedPayment = await paymentsService.createPayment(
+      { grossCashAmount: expectedGrossDue, paymentMethod: PaymentMethod.BANK_TRANSFER },
+      String(accountant.id),
+    );
+    await paymentsService.confirmPayment(String(unallocatedPayment.id), {}, String(boss.id));
+
+    const allocatable = await paymentsService.findAllocatableInstallments(String(unallocatedPayment.id));
+    const targetInstallment = allocatable.installments.find(
+      (item) => String(item.installment_id) === String(createdPlan.installment.id),
+    );
+    assert(
+      Boolean(targetInstallment) &&
+        Number(targetInstallment?.remaining_amount) === expectedGrossDue,
+      'PAYMENT-29: Newly created installment is offered for a confirmed, unallocated payment',
+    );
+    await paymentsService.allocateConfirmedPayment(
+      String(unallocatedPayment.id),
+      {
+        installmentId: String(createdPlan.installment.id),
+        grossAllocatedAmount: expectedGrossDue,
+      },
+      String(boss.id),
+    );
+    const allocationsForPayment = await kysely.db
+      .selectFrom('payment_allocations')
+      .selectAll()
+      .where('payment_id', '=', unallocatedPayment.id)
+      .where('installment_id', '=', createdPlan.installment.id)
+      .execute();
+    assert(
+      allocationsForPayment.length === 1 &&
+        Number(allocationsForPayment[0].gross_allocated_amount) === expectedGrossDue,
+      'PAYMENT-29B: Exactly one allocation record exists without duplicate allocation',
+    );
+    const paidPlanInstallment = await kysely.db
+      .selectFrom('payment_installments')
+      .selectAll()
+      .where('id', '=', createdPlan.installment.id)
+      .executeTakeFirstOrThrow();
+    const paidPlanItem = await kysely.db
+      .selectFrom('order_items')
+      .selectAll()
+      .where('id', '=', planItem.id)
+      .executeTakeFirstOrThrow();
+    assert(
+      paidPlanInstallment.status === 'PAID' && paidPlanItem.payment_status === 'FULLY_PAID',
+      'PAYMENT-30: Post-confirmation allocation updates installment and order item payment status',
+    );
+
+    let overAllocationBlocked = false;
+    try {
+      await paymentsService.allocateConfirmedPayment(
+        String(unallocatedPayment.id),
+        {
+          installmentId: String(createdPlan.installment.id),
+          grossAllocatedAmount: 1,
+        },
+        String(boss.id),
+      );
+    } catch (err: any) {
+      overAllocationBlocked = err.message.includes('exceeds');
+    }
+    assert(overAllocationBlocked, 'PAYMENT-32: Confirmed payment cannot be allocated beyond its remaining balance');
+
   } catch (err: any) {
     console.error('CRITICAL TEST EXCEPTION:', err);
     failed++;

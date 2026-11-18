@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import {
+  Alert,
+  App,
   Card,
+  Checkbox,
+  DatePicker,
+  Form,
+  InputNumber,
+  Modal,
   Table,
   Tag,
   Input,
@@ -22,25 +29,49 @@ import {
   ClockCircleOutlined,
   CloseCircleOutlined,
   DollarCircleOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
+  createSubscriptionApi,
+  getEligibleSubscriptionOrderItemsApi,
   getSubscriptionsApi,
   SubscriptionListItem,
   QuerySubscriptionsParams,
 } from '../../api/subscriptions';
+import { useAuthStore } from '../../store/authStore';
 import { createRowNavigateHandler } from '../../utils/tableUtils';
 
 const { Title, Text } = Typography;
 
+interface CreateSubscriptionFormValues {
+  orderItemId: string;
+  billingInterval: 'MONTH' | 'QUARTER' | 'YEAR' | 'CUSTOM';
+  intervalCount: number;
+  startDate: Dayjs;
+  endDate?: Dayjs | null;
+  autoRenew: boolean;
+}
+
 export const SubscriptionsListPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string | undefined>(undefined);
   const [interval, setInterval] = useState<string | undefined>(undefined);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createForm] = Form.useForm();
+
+  const canCreateSubscription = Boolean(
+    user?.roles.some((role) => ['ACCOUNTANT', 'ADMIN', 'BOSS'].includes(role)),
+  );
 
   const queryParams: QuerySubscriptionsParams = {
     page,
@@ -54,6 +85,44 @@ export const SubscriptionsListPage: React.FC = () => {
     queryKey: ['subscriptions', page, limit, search, status, interval],
     queryFn: () => getSubscriptionsApi(queryParams),
   });
+
+  const {
+    data: eligibleOrderItems = [],
+    isLoading: isLoadingEligibleOrderItems,
+    isError: isEligibleOrderItemsError,
+    error: eligibleOrderItemsError,
+  } = useQuery({
+    queryKey: ['eligible-subscription-order-items'],
+    queryFn: getEligibleSubscriptionOrderItemsApi,
+    enabled: createModalOpen,
+  });
+
+  const handleCreateSubscription = async (values: CreateSubscriptionFormValues) => {
+    if (values.endDate && values.endDate.isBefore(values.startDate, 'day')) {
+      message.error('Ngày kết thúc phải bằng hoặc sau ngày bắt đầu');
+      return;
+    }
+
+    setCreateLoading(true);
+    try {
+      await createSubscriptionApi({
+        orderItemId: values.orderItemId,
+        billingInterval: values.billingInterval,
+        intervalCount: values.intervalCount,
+        startDate: values.startDate.format('YYYY-MM-DD'),
+        endDate: values.endDate?.format('YYYY-MM-DD'),
+        autoRenew: values.autoRenew,
+      });
+      message.success('Đã tạo hợp đồng định kỳ');
+      setCreateModalOpen(false);
+      createForm.resetFields();
+      await refetch();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Không thể tạo hợp đồng định kỳ');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   const getStatusTag = (st: string) => {
     switch (st) {
@@ -248,13 +317,131 @@ export const SubscriptionsListPage: React.FC = () => {
     <div className="vmax-page-wrapper vmax-fade-in">
       {/* HEADER */}
       <div style={{ marginBottom: 20 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          Quản lý dịch vụ định kỳ (Subscriptions)
-        </Title>
-        <Text type="secondary">
-          Theo dõi chu kỳ định kỳ, kỳ thực hiện, thanh toán và nghiệm thu dịch vụ
-        </Text>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div>
+            <Title level={3} style={{ margin: 0 }}>
+              Quản lý dịch vụ định kỳ (Subscriptions)
+            </Title>
+            <Text type="secondary">
+              Theo dõi chu kỳ định kỳ, kỳ thực hiện, thanh toán và nghiệm thu dịch vụ
+            </Text>
+          </div>
+          {canCreateSubscription && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                createForm.setFieldsValue({
+                  billingInterval: 'MONTH',
+                  intervalCount: 1,
+                  startDate: dayjs(),
+                  autoRenew: true,
+                });
+                setCreateModalOpen(true);
+              }}
+            >
+              Tạo hợp đồng
+            </Button>
+          )}
+        </div>
       </div>
+
+      <Modal
+        title="Tạo hợp đồng định kỳ"
+        open={createModalOpen}
+        okText="Tạo hợp đồng"
+        cancelText="Hủy"
+        confirmLoading={createLoading}
+        onCancel={() => {
+          setCreateModalOpen(false);
+          createForm.resetFields();
+        }}
+        onOk={() => createForm.submit()}
+        destroyOnClose
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Hợp đồng được tạo từ một mục dịch vụ định kỳ đã duyệt trong đơn hàng."
+          description="Để tạo hợp đồng test riêng, chỉ chọn mục thuộc đơn hàng test của bạn; không chọn dịch vụ từ đơn hàng cũ hoặc đơn thật. Nếu chưa có mục phù hợp, hãy tạo đơn test có dịch vụ loại Định kỳ và duyệt mục đó trước."
+        />
+        {isEligibleOrderItemsError && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={
+              eligibleOrderItemsError instanceof Error
+                ? eligibleOrderItemsError.message
+                : 'Không thể tải các mục dịch vụ đủ điều kiện'
+            }
+          />
+        )}
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={{
+            billingInterval: 'MONTH',
+            intervalCount: 1,
+            startDate: dayjs(),
+            autoRenew: true,
+          }}
+          onFinish={handleCreateSubscription}
+        >
+          <Form.Item
+            name="orderItemId"
+            label="Mục dịch vụ trong đơn hàng"
+            rules={[{ required: true, message: 'Chọn mục dịch vụ định kỳ đã duyệt' }]}
+          >
+            <Select
+              showSearch
+              loading={isLoadingEligibleOrderItems}
+              placeholder="Chọn đơn hàng test và dịch vụ định kỳ"
+              optionFilterProp="label"
+              options={eligibleOrderItems.map((item) => ({
+                value: item.orderItemId,
+                label: `${item.orderCode} · ${item.customerName} · ${item.serviceName} (${item.serviceCode})`,
+              }))}
+              notFoundContent={isLoadingEligibleOrderItems ? 'Đang tải...' : 'Không có mục dịch vụ đủ điều kiện'}
+            />
+          </Form.Item>
+          <Form.Item
+            name="billingInterval"
+            label="Chu kỳ thanh toán"
+            rules={[{ required: true, message: 'Chọn chu kỳ thanh toán' }]}
+          >
+            <Select
+              options={[
+                { value: 'MONTH', label: 'Hằng tháng' },
+                { value: 'QUARTER', label: 'Hằng quý' },
+                { value: 'YEAR', label: 'Hằng năm' },
+                { value: 'CUSTOM', label: 'Tùy biến' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="intervalCount"
+            label="Số chu kỳ mỗi lần"
+            rules={[{ required: true, message: 'Nhập số chu kỳ' }]}
+          >
+            <InputNumber min={1} max={99} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="startDate"
+            label="Ngày bắt đầu"
+            rules={[{ required: true, message: 'Chọn ngày bắt đầu' }]}
+          >
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          </Form.Item>
+          <Form.Item name="endDate" label="Ngày kết thúc (không bắt buộc)">
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          </Form.Item>
+          <Form.Item name="autoRenew" valuePropName="checked">
+            <Checkbox>Tự động gia hạn</Checkbox>
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* STATS SUMMARY */}
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>

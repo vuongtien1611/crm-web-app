@@ -271,8 +271,9 @@ export class StorageController {
 
         const hasAllocation = await db
           .selectFrom('payment_allocations as pa')
+          .innerJoin('payment_installments as pi', 'pi.id', 'pa.installment_id')
           .select('pa.id')
-          .where('pa.service_period_id', '=', period.id)
+          .where('pi.service_period_id', '=', period.id)
           .executeTakeFirst();
 
         if (!hasApprovedPlan && !hasAllocation) {
@@ -423,6 +424,15 @@ export class StorageController {
     const rawPath = (req.params as any)['*'];
     if (!rawPath) {
       throw new NotFoundException('Missing file path');
+    }
+
+    const query = req.query as { expires?: string; signature?: string };
+    if (
+      typeof query.expires !== 'string' ||
+      typeof query.signature !== 'string' ||
+      !this.storageService.isLocalSignedUrlValid(rawPath, query.expires, query.signature)
+    ) {
+      throw new ForbiddenException('Invalid or expired file URL');
     }
 
     try {

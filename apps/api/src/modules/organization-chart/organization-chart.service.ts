@@ -40,18 +40,18 @@ export interface OrgTeamData {
 }
 
 interface ActiveMembershipRow {
-  membership_id: number;
-  team_id: number;
+  membership_id: string;
+  team_id: string;
   is_leader: boolean;
   joined_at: string;
-  employee_id: number;
+  employee_id: string;
   employee_code: string;
   full_name: string;
   phone: string | null;
   employee_status: string;
   position_code: string | null;
   position_name: string | null;
-  user_id: number | null;
+  user_id: string | null;
 }
 
 export interface OrgChartResponse {
@@ -99,7 +99,7 @@ export class OrganizationChartService {
               .selectFrom('user_roles')
               .innerJoin('roles', 'roles.id', 'user_roles.role_id')
               .select('user_roles.user_id')
-              .whereRef('user_roles.user_id', '=', 'users.id')
+              .whereRef('user_roles.user_id', '=', sql.ref('users.id'))
               .where('roles.code', '=', 'BOSS'),
           ),
         ]),

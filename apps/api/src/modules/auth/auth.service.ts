@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
@@ -26,6 +26,10 @@ export interface AuthUserPayload {
   permissions: string[];
 }
 
+const LOGIN_ATTEMPT_WINDOW_SECONDS = 15 * 60;
+const MAX_IDENTIFIER_LOGIN_ATTEMPTS = 5;
+const MAX_IP_LOGIN_ATTEMPTS = 30;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -41,28 +45,56 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto, userAgent?: string, ip?: string) {
+    const identifier = (dto.identifier || '').trim().toLowerCase();
+    const identifierHash = crypto.createHash('sha256').update(identifier).digest('hex');
+    const ipHash = crypto.createHash('sha256').update(ip || 'unknown').digest('hex');
+    const identifierAttemptsKey = `login_attempts:identifier:${identifierHash}`;
+    const ipAttemptsKey = `login_attempts:ip:${ipHash}`;
+
+    const ipAttempts = await this.incrementLoginAttempts(ipAttemptsKey);
+    const identifierAttempts = await this.redisService.client.get(identifierAttemptsKey);
+    if (
+      Number(identifierAttempts || 0) >= MAX_IDENTIFIER_LOGIN_ATTEMPTS ||
+      ipAttempts > MAX_IP_LOGIN_ATTEMPTS
+    ) {
+      throw new HttpException(
+        'Too many login attempts. Please try again in 15 minutes.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const recordFailedLogin = async () => {
+      await this.incrementLoginAttempts(identifierAttemptsKey);
+    };
+
     // 1. Find user by username or email
     const user = await this.usersService.findByIdentifier(dto.identifier);
     if (!user) {
+      await recordFailedLogin();
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // 2. Verify User Active Status
     if (user.status !== 'ACTIVE') {
+      await recordFailedLogin();
       throw new UnauthorizedException('User account is disabled or suspended');
     }
 
     // 3. Verify Employee Status (if linked)
     const employee = await this.employeesService.findByUserId(user.id);
     if (employee && (employee.status === 'RESIGNED' || employee.status === 'TERMINATED')) {
+      await recordFailedLogin();
       throw new UnauthorizedException('Employee record is inactive');
     }
 
     // 4. Verify Password (Argon2id)
     const isPasswordValid = await this.passwordService.verifyPassword(user.password_hash, dto.password);
     if (!isPasswordValid) {
+      await recordFailedLogin();
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    await this.redisService.client.del(identifierAttemptsKey);
 
     // 5. Load Roles and Permissions
     const { roles, permissions } = await this.rbacService.getUserRolesAndPermissions(user.id);
@@ -127,6 +159,14 @@ export class AuthService {
       refreshToken,
       user: userPayload,
     };
+  }
+
+  private async incrementLoginAttempts(key: string): Promise<number> {
+    const attempts = await this.redisService.client.incr(key);
+    if (attempts === 1) {
+      await this.redisService.client.expire(key, LOGIN_ATTEMPT_WINDOW_SECONDS);
+    }
+    return attempts;
   }
 
   async refresh(refreshToken: string, userAgent?: string, ip?: string) {

@@ -514,7 +514,7 @@ async function runTeamIntegrationTests() {
     const ledTeam = await teamsService.getCurrentLedTeam(empSaleLeader2.employee.id);
     const teamMembers = await teamsService.getCurrentTeamMembers(teamSales2.id);
     assert(
-      ledTeam && String(ledTeam.id) === String(teamSales.id) && teamMembers.length >= 1,
+      Boolean(ledTeam) && String(ledTeam?.id) === String(teamSales.id) && teamMembers.length >= 1,
       'TEAM-18: Workspace foundation helpers return correct led team and members',
     );
 
