@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Body,
+  Param,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -25,6 +26,12 @@ export class OrganizationChartController {
   @HttpCode(HttpStatus.OK)
   async getOrganizationChart() {
     return await this.orgChartService.getOrganizationChart();
+  }
+
+  @Get('employee-workload/:employeeId')
+  @HttpCode(HttpStatus.OK)
+  async getEmployeeWorkload(@Param('employeeId') employeeId: string) {
+    return await this.orgChartService.getEmployeeWorkload(employeeId);
   }
 
   @Post('move-member')

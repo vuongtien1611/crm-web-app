@@ -4,13 +4,24 @@ export class CreateDailyReportItemDto {
   @IsOptional()
   projectId?: string | number | null;
 
-  @IsNotEmpty()
-  @IsString()
-  workTitle!: string;
+  @IsOptional()
+  project_id?: string | number | null;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  workDetail!: string;
+  workTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  work_title?: string;
+
+  @IsOptional()
+  @IsString()
+  workDetail?: string;
+
+  @IsOptional()
+  @IsString()
+  work_detail?: string;
 
   @IsOptional()
   @IsString()
@@ -28,10 +39,20 @@ export class CreateDailyReportItemDto {
   progressPercent?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  progress_percent?: number;
+
+  @IsOptional()
   @IsString()
   note?: string | null;
 
   @IsOptional()
   @IsInt()
   sortOrder?: number;
+
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
 }

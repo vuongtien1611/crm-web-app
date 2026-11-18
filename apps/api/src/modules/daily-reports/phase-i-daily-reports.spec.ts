@@ -321,6 +321,9 @@ async function runPhaseIDailyReportsSuite() {
       })
       .execute();
 
+    // Ensure subsequent JS Date (ms precision) is strictly after Postgres NOW() (us precision)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
     // Now Emp1 submits a new report on next day
     const report1NextDate = '2026-09-09';
     const report1Next = await reportsController.createDailyReport(
@@ -718,6 +721,22 @@ async function runPhaseIDailyReportsSuite() {
       userEmp1,
     );
     assert(deletedRes.success === true, 'DRI-05: Owner can successfully delete work item');
+    passCount++;
+
+    // ----------------------------------------------------------------
+    // DR-11: Delete Daily Report
+    // ----------------------------------------------------------------
+    let otherDeleteReportBlocked = false;
+    try {
+      await reportsController.deleteDailyReport(String(report1.id), userEmp2);
+    } catch (err: any) {
+      if (err instanceof ForbiddenException || err.status === 403) otherDeleteReportBlocked = true;
+    }
+    assert(otherDeleteReportBlocked, 'DR-11: Other employee cannot delete daily report (403 Forbidden)');
+    passCount++;
+
+    const delReportRes = await reportsController.deleteDailyReport(String(report1.id), userEmp1);
+    assert(delReportRes.success === true, 'DR-11: Owner can successfully delete daily report');
     passCount++;
 
     // ================================================================

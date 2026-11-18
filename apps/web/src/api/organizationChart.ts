@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface OrgEmployeeCard {
   employeeId: string;
@@ -50,7 +48,7 @@ export interface ChangeLeaderPayload {
 }
 
 export async function fetchOrganizationChart(): Promise<OrgChartResponse> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/organization-chart`, {
+  const res = await fetchWithAuth(buildApiUrl('/organization-chart'), {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -71,7 +69,7 @@ export async function moveOrgChartMember(payload: MoveMemberPayload): Promise<{
   targetTeamId: string;
   isCrossDepartment?: boolean;
 }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/organization-chart/move-member`, {
+  const res = await fetchWithAuth(buildApiUrl('/organization-chart/move-member'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -91,7 +89,7 @@ export async function changeOrgChartLeader(payload: ChangeLeaderPayload): Promis
   newLeaderEmployeeId: string;
   newLeaderMembershipId: string;
 }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/organization-chart/change-leader`, {
+  const res = await fetchWithAuth(buildApiUrl('/organization-chart/change-leader'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -100,6 +98,52 @@ export async function changeOrgChartLeader(payload: ChangeLeaderPayload): Promis
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Đổi trưởng nhóm thất bại');
+  }
+
+  return res.json();
+}
+
+export interface EmployeeWorkloadResponse {
+  employeeId: string;
+  fullName: string;
+  employeeCode: string;
+  isLeader: boolean;
+  currentTeamId: string | null;
+  activeProjectsCount: number;
+  activeProjects: Array<{
+    id: string;
+    code: string;
+    name: string;
+    assignmentType: string;
+  }>;
+  activeTasksCount: number;
+  activeTasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    projectName: string;
+  }>;
+  activeDealsCount: number;
+  activeDeals: Array<{
+    id: string;
+    title: string;
+    status: string;
+    dealValue: number;
+  }>;
+  hasActiveWorkload: boolean;
+}
+
+export async function fetchEmployeeWorkload(
+  employeeId: string,
+): Promise<EmployeeWorkloadResponse> {
+  const res = await fetchWithAuth(buildApiUrl(`/organization-chart/employee-workload/${employeeId}`), {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể kiểm tra khối lượng công việc của nhân sự');
   }
 
   return res.json();

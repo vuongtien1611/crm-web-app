@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface EmployeeAccountItem {
   employee_id: string;
@@ -86,7 +84,7 @@ export async function getEmployeeAccountsApi(
   if (params?.position_id && params.position_id !== 'ALL') query.append('position_id', String(params.position_id));
   if (params?.status && params.status !== 'ALL') query.append('status', params.status);
 
-  const res = await fetchWithAuth(`${API_BASE_URL}/employee-accounts?${query.toString()}`);
+  const res = await fetchWithAuth(buildApiUrl(`/employee-accounts?${query.toString()}`));
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ message: 'Không thể tải danh sách tài khoản' }));
     throw new Error(errorData.message || 'Không thể tải danh sách tài khoản');
@@ -99,7 +97,7 @@ export async function getEmployeeAccountDetailApi(
   resetRequestId?: string | null,
 ): Promise<EmployeeAccountDetailResponse> {
   const query = resetRequestId ? `?resetRequest=${encodeURIComponent(resetRequestId)}` : '';
-  const res = await fetchWithAuth(`${API_BASE_URL}/employee-accounts/${employeeId}${query}`);
+  const res = await fetchWithAuth(buildApiUrl(`/employee-accounts/${employeeId}${query}`));
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ message: 'Không thể tải chi tiết tài khoản' }));
     throw new Error(errorData.message || 'Không thể tải chi tiết tài khoản');
@@ -108,7 +106,7 @@ export async function getEmployeeAccountDetailApi(
 }
 
 export async function getBossPinStatusApi(): Promise<PinStatusResponse> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employee-accounts/pin-status`);
+  const res = await fetchWithAuth(buildApiUrl('/employee-accounts/pin-status'));
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ message: 'Không thể kiểm tra trạng thái PIN' }));
     throw new Error(errorData.message || 'Không thể kiểm tra trạng thái PIN');
@@ -117,7 +115,7 @@ export async function getBossPinStatusApi(): Promise<PinStatusResponse> {
 }
 
 export async function verifyBossPinApi(pin: string): Promise<{ success: boolean; unlocked: boolean; message: string }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employee-accounts/verify-pin`, {
+  const res = await fetchWithAuth(buildApiUrl('/employee-accounts/verify-pin'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pin }),
@@ -133,7 +131,7 @@ export async function changeBossPinApi(
   newPin: string,
   currentPin?: string,
 ): Promise<{ success: boolean; message: string }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employee-accounts/change-pin`, {
+  const res = await fetchWithAuth(buildApiUrl('/employee-accounts/change-pin'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newPin, currentPin }),
@@ -149,7 +147,7 @@ export async function updateEmployeeAccountApi(
   employeeId: string,
   payload: UpdateEmployeeAccountPayload,
 ): Promise<{ success: boolean; message: string; data?: any }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employee-accounts/${employeeId}`, {
+  const res = await fetchWithAuth(buildApiUrl(`/employee-accounts/${employeeId}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -165,7 +163,7 @@ export async function updateEmployeeAccountApi(
 }
 
 export async function forgotPasswordApi(identifier: string): Promise<{ success: boolean; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+  const res = await fetch(buildApiUrl('/auth/forgot-password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier }),

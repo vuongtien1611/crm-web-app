@@ -4,7 +4,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
 import { sql } from 'kysely';
 import * as argon2 from 'argon2';
 import {
@@ -89,7 +89,7 @@ export class EmployeesService {
    * Serializes checks via PostgreSQL transaction-level advisory lock to eliminate race conditions.
    */
   private async checkSingleActiveBossConstraint(
-    trx: any,
+    trx: CrmTransaction,
     targetEmployeeId?: string | number,
     targetUserId?: string | number,
   ) {
@@ -398,13 +398,7 @@ export class EmployeesService {
           phone: createdEmployee.phone,
           positionId: String(createdEmployee.position_id),
           positionCode: dto.positionCode,
-          hireDate: dto.hireDate
-            ? dto.hireDate
-            : createdEmployee.hire_date instanceof Date
-              ? `${createdEmployee.hire_date.getFullYear()}-${String(createdEmployee.hire_date.getMonth() + 1).padStart(2, '0')}-${String(createdEmployee.hire_date.getDate()).padStart(2, '0')}`
-              : createdEmployee.hire_date
-                ? String(createdEmployee.hire_date)
-                : null,
+          hireDate: dto.hireDate || createdEmployee.hire_date || null,
           status: createdEmployee.status,
         },
         role: {
@@ -481,7 +475,7 @@ export class EmployeesService {
 
       // Enforce single active BOSS invariant
       if (isBossCheckNeeded && isTargetActive) {
-        await this.checkSingleActiveBossConstraint(trx, id, emp.user_id);
+        await this.checkSingleActiveBossConstraint(trx, id, emp.user_id || undefined);
       }
 
       const updateData: any = { updated_at: new Date() };
@@ -567,7 +561,7 @@ export class EmployeesService {
 
       // If target position is BOSS, check Single Active Boss constraint
       if (targetPos.code === 'BOSS') {
-        await this.checkSingleActiveBossConstraint(trx, employeeId, emp.user_id);
+        await this.checkSingleActiveBossConstraint(trx, employeeId, emp.user_id || undefined);
       }
 
       // 3. Determine matching roleCode if not specified
@@ -856,7 +850,7 @@ export class EmployeesService {
           db
             .selectFrom('team_memberships')
             .select('team_memberships.id')
-            .whereRef('team_memberships.employee_id', '=', 'employees.id')
+            .whereRef('team_memberships.employee_id', '=', sql.ref('employees.id'))
             .where('team_memberships.team_id', '=', query.teamId as any)
             .where(sql`team_memberships.effective_range @> NOW()` as any),
         ),
@@ -871,7 +865,7 @@ export class EmployeesService {
             .selectFrom('team_memberships')
             .innerJoin('teams', 'teams.id', 'team_memberships.team_id')
             .select('team_memberships.id')
-            .whereRef('team_memberships.employee_id', '=', 'employees.id')
+            .whereRef('team_memberships.employee_id', '=', sql.ref('employees.id'))
             .where('teams.department', '=', dept)
             .where(sql`team_memberships.effective_range @> NOW()` as any),
         ),
@@ -985,12 +979,7 @@ export class EmployeesService {
         employee_code: r.employee_code,
         full_name: r.full_name,
         phone: r.phone || null,
-        hire_date:
-          r.hire_date instanceof Date
-            ? `${r.hire_date.getFullYear()}-${String(r.hire_date.getMonth() + 1).padStart(2, '0')}-${String(r.hire_date.getDate()).padStart(2, '0')}`
-            : r.hire_date
-              ? String(r.hire_date)
-              : null,
+        hire_date: r.hire_date || null,
         status: r.employee_status,
         created_at: r.employee_created_at,
         position: r.pos_id
@@ -1156,12 +1145,7 @@ export class EmployeesService {
         employee_code: emp.employee_code,
         full_name: emp.full_name,
         phone: emp.phone || null,
-        hire_date:
-          emp.hire_date instanceof Date
-            ? `${emp.hire_date.getFullYear()}-${String(emp.hire_date.getMonth() + 1).padStart(2, '0')}-${String(emp.hire_date.getDate()).padStart(2, '0')}`
-            : emp.hire_date
-              ? String(emp.hire_date)
-              : null,
+        hire_date: emp.hire_date || null,
         status: emp.employee_status,
         created_at: emp.employee_created_at,
       },

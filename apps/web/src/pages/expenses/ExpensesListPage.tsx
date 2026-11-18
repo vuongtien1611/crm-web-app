@@ -338,7 +338,7 @@ export const ExpensesListPage: React.FC = () => {
       {/* Filter Bar */}
       <Card className="vmax-card" style={{ marginBottom: 20 }}>
         <Row gutter={[16, 16]} align="middle">
-          <Col xs={24} sm={12} md={8}>
+          <Col xs={24} sm={12} md={12} lg={8}>
             <div style={{ marginBottom: 4 }}>
               <Text strong style={{ fontSize: 13 }}>
                 Nguồn phát sinh:
@@ -358,7 +358,7 @@ export const ExpensesListPage: React.FC = () => {
             />
           </Col>
 
-          <Col xs={24} sm={12} md={10}>
+          <Col xs={24} sm={12} md={12} lg={10}>
             <div style={{ marginBottom: 4 }}>
               <Text strong style={{ fontSize: 13 }}>
                 Danh mục chi phí:
@@ -380,8 +380,8 @@ export const ExpensesListPage: React.FC = () => {
             />
           </Col>
 
-          <Col xs={24} sm={24} md={6} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
-            <Space style={{ marginTop: 22 }}>
+          <Col xs={24} sm={24} md={24} lg={6} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
+            <Space wrap style={{ marginTop: 8 }}>
               <Button
                 icon={<ReloadOutlined />}
                 onClick={handleResetFilters}

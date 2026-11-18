@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export type EmployeeStatus = 'PROBATION' | 'ACTIVE' | 'RESIGNED' | 'TERMINATED';
 
@@ -156,7 +154,7 @@ export async function getEmployees(params?: GetEmployeesParams): Promise<Employe
   if (params?.department) query.append('department', params.department);
   if (params?.teamId) query.append('teamId', String(params.teamId));
 
-  const url = `${API_BASE_URL}/employees${query.toString() ? `?${query.toString()}` : ''}`;
+  const url = buildApiUrl(`/employees${query.toString() ? `?${query.toString()}` : ''}`);
   const res = await fetchWithAuth(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -166,7 +164,7 @@ export async function getEmployees(params?: GetEmployeesParams): Promise<Employe
 }
 
 export async function getEmployeeById(id: string): Promise<EmployeeDetailResponse> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employees/${id}`);
+  const res = await fetchWithAuth(buildApiUrl(`/employees/${id}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Không thể tải thông tin nhân viên #${id}`);
@@ -175,7 +173,7 @@ export async function getEmployeeById(id: string): Promise<EmployeeDetailRespons
 }
 
 export async function getEmployeeFormOptions(): Promise<FormOptionsResponse> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employees/meta/options`);
+  const res = await fetchWithAuth(buildApiUrl('/employees/meta/options'));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải cấu hình tạo nhân viên');
@@ -186,7 +184,7 @@ export async function getEmployeeFormOptions(): Promise<FormOptionsResponse> {
 export async function createEmployeeAccount(
   payload: CreateEmployeeAccountPayload,
 ): Promise<any> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employees`, {
+  const res = await fetchWithAuth(buildApiUrl('/employees'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -214,7 +212,7 @@ export async function changeEmployeePosition(
   id: string,
   payload: ChangePositionPayload,
 ): Promise<any> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/employees/${id}/change-position`, {
+  const res = await fetchWithAuth(buildApiUrl(`/employees/${id}/change-position`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

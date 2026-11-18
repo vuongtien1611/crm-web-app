@@ -52,7 +52,7 @@ export class CommissionPolicyMatcherService {
     }
 
     let maxScore = -1;
-    let bestMatches: any[] = [];
+    let bestMatches: typeof candidates = [];
 
     for (const p of validByDate) {
       let score = 0;

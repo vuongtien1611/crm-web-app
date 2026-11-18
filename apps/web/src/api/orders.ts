@@ -28,6 +28,7 @@ export interface ChangeRequest {
 export interface OrderItem {
   id: string;
   order_id: string;
+  project_id?: string | null;
   deal_id?: string;
   deal_name?: string;
   closing_sale_id: string;
@@ -41,9 +42,22 @@ export interface OrderItem {
   discount_amount: number;
   net_service_value: number;
   vat_amount: number;
+  start_date?: string | null;
+  end_date?: string | null;
   approval_status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   delivery_status: 'PENDING' | 'WAITING_DEPENDENCY' | 'READY_FOR_ASSIGNMENT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   payment_status: 'UNPAID' | 'PARTIALLY_PAID' | 'FULLY_PAID';
+  payment_plan?: {
+    id: string;
+    status: string;
+    installments: Array<{
+      id: string;
+      installment_number: number;
+      due_date: string;
+      gross_amount_due: number;
+      status: string;
+    }>;
+  } | null;
   created_at: string;
   requirements?: OrderItemRequirement[];
   changeRequests?: ChangeRequest[];
@@ -73,6 +87,8 @@ export interface OrderDetail {
   primary_contact_email?: string;
   order_code: string;
   order_name?: string;
+  start_date?: string | null;
+  end_date?: string | null;
   workflow_status: 'DRAFT' | 'PENDING_APPROVAL' | 'NEED_MORE_INFO' | 'APPROVED' | 'IN_PROGRESS' | 'COMPLETED' | 'REJECTED' | 'CANCELLED';
   created_at: string;
   updated_at: string;
@@ -184,6 +200,12 @@ export async function cancelOrderApi(id: string, reason?: string) {
   return res.json();
 }
 
+export async function fetchSalesRepsApi(): Promise<any[]> {
+  const res = await fetchWithAuth('/api/orders/sales-reps');
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function addOrderItemApi(
   orderId: string,
   data: {
@@ -192,6 +214,8 @@ export async function addOrderItemApi(
     originalPrice: number;
     discountAmount?: number;
     dealId?: string | number;
+    startDate?: string | null;
+    endDate?: string | null;
   },
 ) {
   const res = await fetchWithAuth(`/api/orders/${orderId}/items`, {
@@ -203,11 +227,56 @@ export async function addOrderItemApi(
       originalPrice: Number(data.originalPrice),
       discountAmount: Number(data.discountAmount || 0),
       ...(data.dealId ? { dealId: String(data.dealId) } : {}),
+      ...(data.startDate ? { startDate: data.startDate } : {}),
+      ...(data.endDate ? { endDate: data.endDate } : {}),
     }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Failed to add order item');
+  }
+  return res.json();
+}
+
+export async function updateOrderItemApi(
+  itemId: string,
+  data: {
+    serviceId?: number | string;
+    closingSaleId?: number | string;
+    originalPrice?: number;
+    discountAmount?: number;
+    startDate?: string | null;
+    endDate?: string | null;
+  },
+) {
+  const res = await fetchWithAuth(`/api/order-items/${itemId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Cập nhật mục dịch vụ thất bại');
+  }
+  return res.json();
+}
+
+export async function updateOrderApi(
+  orderId: string,
+  data: {
+    orderName?: string;
+    startDate?: string | null;
+    endDate?: string | null;
+  },
+) {
+  const res = await fetchWithAuth(`/api/orders/${orderId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Cập nhật đơn hàng thất bại');
   }
   return res.json();
 }

@@ -15,7 +15,7 @@ import {
   Input,
   Select,
   Popconfirm,
-  message,
+  App,
   Alert,
   Badge,
   Descriptions,
@@ -57,6 +57,7 @@ import { createRowNavigateHandler, createRowActionHandler } from '../../utils/ta
 const { Title, Text } = Typography;
 
 export const AcquisitionPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const isAdminOrBoss = user?.roles?.some((r: string) => ['ADMIN', 'BOSS'].includes(r));
@@ -175,14 +176,7 @@ export const AcquisitionPage: React.FC = () => {
   return (
     <div className="vmax-page-wrapper" style={{ padding: 24 }}>
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-        }}
-      >
+      <div className="vmax-page-header-toolbar">
         <div>
           <Title level={3} style={{ margin: 0, color: '#0f766e' }}>
             <GlobalOutlined style={{ marginRight: 10 }} />
@@ -192,7 +186,7 @@ export const AcquisitionPage: React.FC = () => {
             Cấu hình Platform, Channel và phân bổ tự động Lead cho Sale phụ trách theo đúng quy tắc Canonical
           </Text>
         </div>
-        <Space>
+        <Space wrap>
           <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
             Làm mới
           </Button>
@@ -395,7 +389,7 @@ export const AcquisitionPage: React.FC = () => {
               ),
               children: (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
                     <Text type="secondary">
                       Danh mục nền tảng quảng cáo và tiếp thị khách hàng được hỗ trợ trên hệ thống.
                     </Text>
@@ -455,7 +449,7 @@ export const AcquisitionPage: React.FC = () => {
               ),
               children: (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
                     <Text type="secondary">
                       5 Canonical Channels: ORGANIC, PAID_ADS, REFERRAL, DIRECT, MANUAL.
                     </Text>

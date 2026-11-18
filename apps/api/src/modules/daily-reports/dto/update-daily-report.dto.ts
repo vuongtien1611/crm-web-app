@@ -1,4 +1,5 @@
 import { IsOptional, IsString } from 'class-validator';
+import { UpdateDailyReportItemDto } from './update-daily-report-item.dto';
 
 export class UpdateDailyReportDto {
   @IsOptional()
@@ -18,5 +19,5 @@ export class UpdateDailyReportDto {
   note?: string;
 
   @IsOptional()
-  items?: any[];
+  items?: UpdateDailyReportItemDto[];
 }

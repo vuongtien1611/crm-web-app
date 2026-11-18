@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { envConfig } from './config/env.config';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { KyselyModule } from './database/kysely.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
@@ -33,6 +34,7 @@ import { DynamicOptionsModule } from './modules/dynamic-options/dynamic-options.
 import { EmployeeAccountsModule } from './modules/employee-accounts/employee-accounts.module';
 import { OrganizationChartModule } from './modules/organization-chart/organization-chart.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from './modules/rbac/guards/permissions.guard';
 
 @Module({
   imports: [
@@ -76,6 +78,14 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
+    },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+  }
+}

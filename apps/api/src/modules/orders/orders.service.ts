@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
+import type { Services } from '../../database/db';
+import type { Selectable } from 'kysely';
 import { CreateOrderItemDto } from './dto/create-order-item.dto';
+import { CreateServiceDto } from './dto/create-service.dto';
+import { UpdateOrderItemDto } from './dto/update-order-item.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { UpdateOrderItemRequirementsDto } from './dto/update-order-item-requirements.dto';
 import { RequestMoreInfoDto } from './dto/request-more-info.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
@@ -30,13 +35,13 @@ export class OrdersService {
   // AUDIT LOG HELPER
   // --------------------------------------------------
   private async logAudit(
-    trx: any,
+    trx: CrmTransaction,
     action: string,
     entityType: string,
     entityId: string | number,
     actorEmployeeId?: string | number | null,
-    payloadBefore?: any,
-    payloadAfter?: any,
+    payloadBefore?: Record<string, unknown> | null,
+    payloadAfter?: Record<string, unknown> | null,
   ) {
     await trx
       .insertInto('audit_logs')
@@ -130,6 +135,52 @@ export class OrdersService {
         .execute();
 
       await this.logAudit(trx, 'ORDER_APPROVE', 'orders', order.id, actorEmployeeId, order, updatedOrder);
+
+      // Collect target SALE employees to notify (Rule 3)
+      const items = await trx
+        .selectFrom('order_items')
+        .select(['closing_sale_id'])
+        .where('order_id', '=', order.id)
+        .execute();
+
+      const saleEmployeeIds = new Set<string>();
+      for (const item of items) {
+        if (item.closing_sale_id) {
+          saleEmployeeIds.add(String(item.closing_sale_id));
+        }
+      }
+
+      if (saleEmployeeIds.size === 0) {
+        const submitLog = await trx
+          .selectFrom('audit_logs')
+          .select(['actor_employee_id'])
+          .where('entity_id', '=', String(order.id) as any)
+          .where('action', 'in', ['ORDER_SUBMIT', 'ORDER_RESUBMIT'])
+          .orderBy('created_at', 'desc')
+          .executeTakeFirst();
+
+        if (submitLog?.actor_employee_id) {
+          saleEmployeeIds.add(String(submitLog.actor_employee_id));
+        }
+      }
+
+      const orderDisplayName = order.order_name || order.order_code;
+      for (const saleId of saleEmployeeIds) {
+        await this.notificationsService.createNotification(
+          {
+            employeeId: saleId,
+            eventType: 'ORDER_APPROVED',
+            title: 'Đơn hàng đã được phê duyệt',
+            content: `Đơn hàng ${orderDisplayName} đã được phê duyệt.`,
+            deepLinkUrl: `/orders/${order.id}`,
+            entityType: 'orders',
+            entityId: order.id,
+            idempotent: true,
+          },
+          trx,
+        );
+      }
+
       return updatedOrder;
     });
   }
@@ -240,6 +291,52 @@ export class OrdersService {
         .execute();
 
       await this.logAudit(trx, 'ORDER_REJECT', 'orders', order.id, actorEmployeeId, { ...order, reason: dto.reason }, updatedOrder);
+
+      // Collect target SALE employees to notify
+      const items = await trx
+        .selectFrom('order_items')
+        .select(['closing_sale_id'])
+        .where('order_id', '=', order.id)
+        .execute();
+
+      const saleEmployeeIds = new Set<string>();
+      for (const item of items) {
+        if (item.closing_sale_id) {
+          saleEmployeeIds.add(String(item.closing_sale_id));
+        }
+      }
+
+      if (saleEmployeeIds.size === 0) {
+        const submitLog = await trx
+          .selectFrom('audit_logs')
+          .select(['actor_employee_id'])
+          .where('entity_id', '=', String(order.id) as any)
+          .where('action', 'in', ['ORDER_SUBMIT', 'ORDER_RESUBMIT'])
+          .orderBy('created_at', 'desc')
+          .executeTakeFirst();
+
+        if (submitLog?.actor_employee_id) {
+          saleEmployeeIds.add(String(submitLog.actor_employee_id));
+        }
+      }
+
+      const orderDisplayName = order.order_name || order.order_code;
+      for (const saleId of saleEmployeeIds) {
+        await this.notificationsService.createNotification(
+          {
+            employeeId: saleId,
+            eventType: 'ORDER_REJECTED',
+            title: 'Đơn hàng bị từ chối',
+            content: `Đơn hàng ${orderDisplayName} đã bị từ chối: ${dto.reason}`,
+            deepLinkUrl: `/orders/${order.id}`,
+            entityType: 'orders',
+            entityId: order.id,
+            idempotent: true,
+          },
+          trx,
+        );
+      }
+
       return updatedOrder;
     });
   }
@@ -276,6 +373,57 @@ export class OrdersService {
     });
   }
 
+  async updateOrder(id: string, dto: UpdateOrderDto, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', id as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Order [${id}] not found`);
+      }
+
+      if (['COMPLETED', 'REJECTED', 'CANCELLED'].includes(order.workflow_status)) {
+        throw new BadRequestException(`Cannot edit order in status ${order.workflow_status}`);
+      }
+
+      const updates: {
+        updated_at: Date;
+        order_name?: string;
+        start_date?: string | null;
+        end_date?: string | null;
+      } = { updated_at: new Date() };
+      if (dto.orderName !== undefined) {
+        updates.order_name = dto.orderName;
+      }
+      if (dto.startDate !== undefined) {
+        updates.start_date = dto.startDate ? dto.startDate : null;
+      }
+      if (dto.endDate !== undefined) {
+        updates.end_date = dto.endDate ? dto.endDate : null;
+      }
+
+      if (updates.start_date && updates.end_date) {
+        if (new Date(updates.end_date) < new Date(updates.start_date)) {
+          throw new BadRequestException('Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu');
+        }
+      }
+
+      const [updatedOrder] = await trx
+        .updateTable('orders')
+        .set(updates)
+        .where('id', '=', order.id)
+        .returningAll()
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_UPDATE', 'orders', order.id, actorEmployeeId, order, updatedOrder);
+      return updatedOrder;
+    });
+  }
+
   // --------------------------------------------------
   // ORDER ITEM ACTIONS
   // --------------------------------------------------
@@ -297,16 +445,61 @@ export class OrdersService {
         throw new BadRequestException(`Cannot add items to a non-active order (${order.workflow_status})`);
       }
 
-      // Find active service
-      const serviceIdStr = String(dto.serviceId);
-      const service = await trx
-        .selectFrom('services')
-        .selectAll()
-        .where('id', '=', serviceIdStr as any)
-        .executeTakeFirst();
+      // Find or auto-create active service
+      const serviceIdStr = String(dto.serviceId).replace(/^__NEW__:/, '').trim();
+      let service: Selectable<Services> | undefined;
+
+      if (/^\d+$/.test(serviceIdStr)) {
+        service = await trx
+          .selectFrom('services')
+          .selectAll()
+          .where('id', '=', serviceIdStr)
+          .executeTakeFirst();
+      }
 
       if (!service) {
-        throw new NotFoundException(`Dịch vụ [${dto.serviceId}] không tồn tại`);
+        service = await trx
+          .selectFrom('services')
+          .selectAll()
+          .where((eb) => eb(eb.fn('lower', ['name']), '=', serviceIdStr.toLowerCase()))
+          .executeTakeFirst();
+      }
+
+      if (!service) {
+        // Auto-create new service catalog entry
+        const slug = serviceIdStr
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd')
+          .replace(/Đ/g, 'D')
+          .replace(/[^a-zA-Z0-9]/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .toUpperCase()
+          .slice(0, 20);
+        let code = `SVC_${slug || 'NEW'}_${Date.now().toString().slice(-4)}`;
+        const codeCheck = await trx
+          .selectFrom('services')
+          .select('id')
+          .where('code', '=', code)
+          .executeTakeFirst();
+        if (codeCheck) {
+          code = `SVC_${Date.now()}`;
+        }
+
+        const [createdService] = await trx
+          .insertInto('services')
+          .values({
+            code,
+            name: serviceIdStr,
+            service_type: 'PROJECT',
+            description: `Dịch vụ ${serviceIdStr}`,
+            is_active: true,
+          })
+          .returningAll()
+          .execute();
+
+        service = createdService;
       }
 
       if (service.is_active === false) {
@@ -382,6 +575,14 @@ export class OrdersService {
       const netServiceValue = originalPrice - discountAmount;
       const vatAmount = Number(dto.vatAmount || 0);
 
+      let startDate: string | null = dto.startDate || null;
+      let endDate: string | null = dto.endDate || null;
+      if (startDate && endDate) {
+        if (new Date(endDate) < new Date(startDate)) {
+          throw new BadRequestException('Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu');
+        }
+      }
+
       // Insert OrderItem
       const [orderItem] = await trx
         .insertInto('order_items')
@@ -396,6 +597,8 @@ export class OrdersService {
           discount_amount: discountAmount,
           net_service_value: netServiceValue,
           vat_amount: vatAmount,
+          start_date: startDate ? (startDate as any) : null,
+          end_date: endDate ? (endDate as any) : null,
           approval_status: 'DRAFT',
           delivery_status: 'PENDING',
           payment_status: 'UNPAID',
@@ -428,6 +631,243 @@ export class OrdersService {
 
       await this.logAudit(trx, 'ORDER_ITEM_ADD', 'order_items', orderItem.id, actorEmployeeId, null, orderItem);
       return orderItem;
+    });
+  }
+
+  async updateOrderItem(itemId: string, dto: UpdateOrderItemDto, actorEmployeeId?: string) {
+    return await this.kysely.db.transaction().execute(async (trx) => {
+      const item = await trx
+        .selectFrom('order_items')
+        .selectAll()
+        .where('id', '=', itemId as any)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!item) {
+        throw new NotFoundException(`OrderItem [${itemId}] không tồn tại`);
+      }
+
+      const order = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', item.order_id)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!order) {
+        throw new NotFoundException(`Đơn hàng [${item.order_id}] không tồn tại`);
+      }
+
+      if (['COMPLETED', 'REJECTED', 'CANCELLED'].includes(order.workflow_status)) {
+        throw new BadRequestException(`Không thể chỉnh sửa đơn hàng ở trạng thái ${order.workflow_status}`);
+      }
+
+      if (item.approval_status !== 'DRAFT') {
+        throw new BadRequestException(
+          `Chỉ có thể chỉnh sửa dịch vụ ở trạng thái Nháp (DRAFT). Trạng thái hiện tại: ${item.approval_status}`,
+        );
+      }
+
+      let serviceId = item.service_id;
+      let requirementTemplateId = item.requirement_template_id;
+      let requirementTemplateVersion = item.requirement_template_version;
+
+      // Handle service change
+      if (dto.serviceId && String(dto.serviceId) !== String(item.service_id)) {
+        const serviceIdStr = String(dto.serviceId).replace(/^__NEW__:/, '').trim();
+        let service: Selectable<Services> | undefined;
+
+        if (/^\d+$/.test(serviceIdStr)) {
+          service = await trx
+            .selectFrom('services')
+            .selectAll()
+            .where('id', '=', serviceIdStr)
+            .executeTakeFirst();
+        }
+
+        if (!service) {
+          service = await trx
+            .selectFrom('services')
+            .selectAll()
+            .where((eb) => eb(eb.fn('lower', ['name']), '=', serviceIdStr.toLowerCase()))
+            .executeTakeFirst();
+        }
+
+        if (!service) {
+          const slug = serviceIdStr
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/đ/g, 'd')
+            .replace(/Đ/g, 'D')
+            .replace(/[^a-zA-Z0-9]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .toUpperCase()
+            .slice(0, 20);
+          let code = `SVC_${slug || 'NEW'}_${Date.now().toString().slice(-4)}`;
+          const codeCheck = await trx
+            .selectFrom('services')
+            .select('id')
+            .where('code', '=', code)
+            .executeTakeFirst();
+          if (codeCheck) {
+            code = `SVC_${Date.now()}`;
+          }
+
+          const [createdService] = await trx
+            .insertInto('services')
+            .values({
+              code,
+              name: serviceIdStr,
+              service_type: 'PROJECT',
+              description: `Dịch vụ ${serviceIdStr}`,
+              is_active: true,
+            })
+            .returningAll()
+            .execute();
+
+          service = createdService;
+        }
+
+        if (service.is_active === false) {
+          throw new BadRequestException(`Dịch vụ [${service.name}] đang tạm ngưng hoạt động`);
+        }
+
+        serviceId = service.id;
+
+        let template = await trx
+          .selectFrom('service_requirement_templates')
+          .selectAll()
+          .where('service_id', '=', service.id)
+          .where('is_active', '=', true)
+          .orderBy('version', 'desc')
+          .executeTakeFirst();
+
+        if (!template) {
+          const [newTemplate] = await trx
+            .insertInto('service_requirement_templates')
+            .values({
+              service_id: service.id,
+              version: 1,
+              template_name: `Template for ${service.name}`,
+              is_active: true,
+            })
+            .returningAll()
+            .execute();
+          template = newTemplate;
+        }
+
+        requirementTemplateId = template.id;
+        requirementTemplateVersion = template.version;
+
+        // Reset requirements snapshot
+        await trx
+          .deleteFrom('order_item_requirements')
+          .where('order_item_id', '=', item.id)
+          .execute();
+
+        const fields = await trx
+          .selectFrom('service_requirement_fields')
+          .selectAll()
+          .where('template_id', '=', template.id)
+          .execute();
+
+        for (const field of fields) {
+          await trx
+            .insertInto('order_item_requirements')
+            .values({
+              order_item_id: item.id,
+              field_id: field.id,
+              field_key_snapshot: field.field_key,
+              label_snapshot: field.field_label,
+              field_type_snapshot: field.field_type,
+              options_snapshot: field.options_json ? JSON.stringify(field.options_json) : null,
+              value_text: null,
+              value_json: null,
+            })
+            .execute();
+        }
+      }
+
+      // Handle closing sale change
+      let closingSaleId = item.closing_sale_id;
+      if (dto.closingSaleId && String(dto.closingSaleId) !== String(item.closing_sale_id)) {
+        const closingSaleIdStr = String(dto.closingSaleId);
+        const employee = await trx
+          .selectFrom('employees as e')
+          .leftJoin('positions as p', 'p.id', 'e.position_id')
+          .select([
+            'e.id',
+            'e.employee_code',
+            'e.full_name',
+            'e.status',
+            'p.code as position_code',
+          ])
+          .where('e.id', '=', closingSaleIdStr as any)
+          .executeTakeFirst();
+
+        if (!employee) {
+          throw new NotFoundException(`Nhân viên chốt sale [${dto.closingSaleId}] không tồn tại`);
+        }
+        if (employee.status !== 'ACTIVE' && employee.status !== 'PROBATION') {
+          throw new BadRequestException(`Nhân viên [${employee.full_name}] không ở trạng thái hoạt động`);
+        }
+        closingSaleId = employee.id;
+      }
+
+      const originalPrice = dto.originalPrice !== undefined ? Number(dto.originalPrice) : Number(item.original_price);
+      if (isNaN(originalPrice) || originalPrice <= 0) {
+        throw new BadRequestException('Đơn giá gốc phải lớn hơn 0');
+      }
+
+      const discountAmount = dto.discountAmount !== undefined ? Number(dto.discountAmount) : Number(item.discount_amount || 0);
+      if (isNaN(discountAmount) || discountAmount < 0) {
+        throw new BadRequestException('Số tiền giảm giá không được âm');
+      }
+      if (discountAmount > originalPrice) {
+        throw new BadRequestException('Số tiền giảm giá không được vượt quá đơn giá gốc');
+      }
+
+      const netServiceValue = originalPrice - discountAmount;
+      const vatAmount = dto.vatAmount !== undefined ? Number(dto.vatAmount) : Number(item.vat_amount || 0);
+
+      let startDate: string | null = dto.startDate !== undefined ? (dto.startDate || null) : (item.start_date || null);
+      let endDate: string | null = dto.endDate !== undefined ? (dto.endDate || null) : (item.end_date || null);
+
+      if (startDate && endDate) {
+        if (new Date(endDate) < new Date(startDate)) {
+          throw new BadRequestException('Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu');
+        }
+      }
+
+      const [updatedItem] = await trx
+        .updateTable('order_items')
+        .set({
+          service_id: serviceId as any,
+          closing_sale_id: closingSaleId as any,
+          requirement_template_id: requirementTemplateId as any,
+          requirement_template_version: requirementTemplateVersion,
+          original_price: originalPrice,
+          discount_amount: discountAmount,
+          net_service_value: netServiceValue,
+          vat_amount: vatAmount,
+          start_date: startDate ? (startDate as any) : null,
+          end_date: endDate ? (endDate as any) : null,
+          updated_at: new Date(),
+        })
+        .where('id', '=', item.id)
+        .returningAll()
+        .execute();
+
+      await trx
+        .updateTable('orders')
+        .set({ updated_at: new Date() })
+        .where('id', '=', order.id)
+        .execute();
+
+      await this.logAudit(trx, 'ORDER_ITEM_UPDATE', 'order_items', updatedItem.id, actorEmployeeId, item, updatedItem);
+
+      return updatedItem;
     });
   }
 
@@ -890,6 +1330,8 @@ export class OrdersService {
         'o.order_code',
         'o.order_name',
         'o.workflow_status',
+        'o.start_date',
+        'o.end_date',
         'o.created_at',
         'o.updated_at',
       ])
@@ -906,9 +1348,11 @@ export class OrdersService {
       .innerJoin('services as s', 's.id', 'oi.service_id')
       .innerJoin('employees as closer', 'closer.id', 'oi.closing_sale_id')
       .leftJoin('deals as d', 'd.id', 'oi.deal_id')
+      .leftJoin('projects as p', 'p.order_item_id', 'oi.id')
       .select([
         'oi.id',
         'oi.order_id',
+        'p.id as project_id',
         'oi.deal_id',
         'd.deal_name',
         'oi.closing_sale_id',
@@ -925,12 +1369,45 @@ export class OrdersService {
         'oi.approval_status',
         'oi.delivery_status',
         'oi.payment_status',
+        'oi.start_date',
+        'oi.end_date',
         'oi.created_at',
         'oi.updated_at',
       ])
       .where('oi.order_id', '=', id as any)
       .orderBy('oi.created_at', 'asc')
       .execute();
+
+    const activePaymentPlans =
+      items.length > 0
+        ? await this.kysely.db
+            .selectFrom('order_item_payment_plans')
+            .select(['id', 'order_item_id', 'status', 'version'])
+            .where(
+              'order_item_id',
+              'in',
+              items.map((item) => item.id),
+            )
+            .where('status', 'in', ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'])
+            .execute()
+        : [];
+    const paymentPlanIds = activePaymentPlans.map((plan) => plan.id);
+    const paymentPlanInstallments =
+      paymentPlanIds.length > 0
+        ? await this.kysely.db
+            .selectFrom('payment_installments')
+            .select([
+              'id',
+              'payment_plan_id',
+              'installment_number',
+              sql<string>`to_char(due_date, 'YYYY-MM-DD')`.as('due_date'),
+              'gross_amount_due',
+              'status',
+            ])
+            .where('payment_plan_id', 'in', paymentPlanIds)
+            .orderBy('installment_number', 'asc')
+            .execute()
+        : [];
 
     // Enrich items with requirements and change requests
     const enrichedItems = await Promise.all(
@@ -965,6 +1442,15 @@ export class OrdersService {
 
         return {
           ...item,
+          payment_plan:
+            activePaymentPlans
+              .filter((plan) => String(plan.order_item_id) === String(item.id))
+              .map((plan) => ({
+                ...plan,
+                installments: paymentPlanInstallments.filter(
+                  (installment) => String(installment.payment_plan_id) === String(plan.id),
+                ),
+              }))[0] || null,
           requirements,
           changeRequests,
         };
@@ -1031,4 +1517,124 @@ export class OrdersService {
       defaultPrice: priceMap.get(String(s.id)) || (s.service_type === 'PROJECT' ? 10000000 : 5000000),
     }));
   }
+
+  async getActiveSalesReps() {
+    return await this.kysely.db
+      .selectFrom('employees as e')
+      .leftJoin('positions as p', 'p.id', 'e.position_id')
+      .leftJoin('users as u', 'u.id', 'e.user_id')
+      .select([
+        'e.id',
+        'e.employee_code',
+        'e.full_name',
+        'u.email',
+        'p.code as position_code',
+        'p.name as position_name',
+      ])
+      .where('e.status', 'in', ['ACTIVE', 'PROBATION'])
+      .where((eb) =>
+        eb.or([
+          eb('p.code', 'in', ['SALE', 'SALES_TEAM_LEADER', 'BOSS', 'ADMIN']),
+          eb('p.code', 'is', null),
+        ]),
+      )
+      .orderBy('e.full_name', 'asc')
+      .execute();
+  }
+
+  async createService(dto: CreateServiceDto, actorEmployeeId?: string) {
+    const trimmedName = dto.name.trim();
+    if (!trimmedName) {
+      throw new BadRequestException('Tên dịch vụ không được để trống');
+    }
+
+    const existing = await this.kysely.db
+      .selectFrom('services')
+      .selectAll()
+      .where((eb) => eb(eb.fn('lower', ['name']), '=', trimmedName.toLowerCase()))
+      .executeTakeFirst();
+
+    if (existing) {
+      if (!existing.is_active) {
+        await this.kysely.db
+          .updateTable('services')
+          .set({ is_active: true })
+          .where('id', '=', existing.id)
+          .execute();
+      }
+      return {
+        id: Number(existing.id),
+        code: existing.code,
+        name: existing.name,
+        service_type: existing.service_type,
+        description: existing.description,
+        is_active: true,
+        defaultPrice: dto.defaultPrice || (existing.service_type === 'PROJECT' ? 10000000 : 5000000),
+      };
+    }
+
+    let code = dto.code ? dto.code.trim().toUpperCase() : '';
+    if (!code) {
+      const slug = trimmedName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D')
+        .replace(/[^a-zA-Z0-9]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toUpperCase()
+        .slice(0, 20);
+      code = `SVC_${slug || 'NEW'}_${Date.now().toString().slice(-4)}`;
+    }
+
+    const codeExists = await this.kysely.db
+      .selectFrom('services')
+      .select('id')
+      .where('code', '=', code)
+      .executeTakeFirst();
+
+    if (codeExists) {
+      code = `SVC_${Date.now()}`;
+    }
+
+    const serviceType = dto.serviceType || 'PROJECT';
+
+    const [newService] = await this.kysely.db
+      .insertInto('services')
+      .values({
+        code,
+        name: trimmedName,
+        service_type: serviceType,
+        description: dto.description || `Dịch vụ ${trimmedName}`,
+        is_active: true,
+      })
+      .returningAll()
+      .execute();
+
+    await this.kysely.db
+      .insertInto('service_requirement_templates')
+      .values({
+        service_id: newService.id,
+        version: 1,
+        template_name: `Template for ${newService.name}`,
+        is_active: true,
+      })
+      .execute();
+
+    const price = dto.defaultPrice !== undefined && dto.defaultPrice > 0
+      ? dto.defaultPrice
+      : (serviceType === 'PROJECT' ? 10000000 : 5000000);
+
+    return {
+      id: Number(newService.id),
+      code: newService.code,
+      name: newService.name,
+      service_type: newService.service_type,
+      description: newService.description,
+      is_active: true,
+      defaultPrice: price,
+    };
+  }
 }
+

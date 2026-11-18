@@ -10,25 +10,29 @@ import {
   Typography,
   Space,
   Alert,
-  message,
+  App,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   SaveOutlined,
   TeamOutlined,
+  LockOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { createTeam, TeamDepartment } from '../../api/teams';
+import { createTeam, getPreviewTeamCode, TeamDepartment } from '../../api/teams';
 
 const { Title, Text, Paragraph } = Typography;
 
 export const CreateTeamPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [form] = Form.useForm();
 
   const [submitting, setSubmitting] = useState(false);
+  const [loadingCode, setLoadingCode] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Permissions check
@@ -37,6 +41,24 @@ export const CreateTeamPage: React.FC = () => {
   const isAdmin = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN') || roles.includes('BOSS');
   const canCreate = isAdmin || permissions.includes('TEAM_CREATE');
 
+  const handleDepartmentChange = async (value: TeamDepartment) => {
+    if (!value) {
+      form.setFieldsValue({ code: '' });
+      return;
+    }
+    try {
+      setLoadingCode(true);
+      const res = await getPreviewTeamCode(value);
+      if (form.getFieldValue('department') === value) {
+        form.setFieldsValue({ code: res.code });
+      }
+    } catch (err: any) {
+      console.error('Lỗi khi tải mã nhóm tự sinh:', err);
+    } finally {
+      setLoadingCode(false);
+    }
+  };
+
   const onFinish = async (values: any) => {
     try {
       setSubmitting(true);
@@ -44,13 +66,12 @@ export const CreateTeamPage: React.FC = () => {
 
       const payload = {
         name: values.name.trim(),
-        code: values.code.trim().toUpperCase(),
         department: values.department as TeamDepartment,
         description: values.description ? values.description.trim() : undefined,
       };
 
       const result = await createTeam(payload);
-      message.success(`Tạo nhóm làm việc "${result.name || payload.name}" thành công!`);
+      message.success(`Tạo nhóm làm việc "${result.name || payload.name}" thành công (Mã: ${result.code})!`);
       navigate(`/teams/${result.id || ''}`);
     } catch (err: any) {
       console.error(err);
@@ -127,8 +148,7 @@ export const CreateTeamPage: React.FC = () => {
           style={{ borderRadius: 12, marginBottom: 24 }}
         >
           <Paragraph type="secondary" style={{ marginBottom: 20 }}>
-            Lưu ý: Phòng ban trực thuộc phải được lựa chọn rõ ràng. Hệ thống không cho phép để trống
-            hoặc mặc định.
+            Lưu ý: Mã nhóm sẽ được hệ thống tự động sinh theo phòng ban và số thứ tự tiếp theo trong cơ sở dữ liệu.
           </Paragraph>
 
           <Row gutter={[16, 16]}>
@@ -148,38 +168,51 @@ export const CreateTeamPage: React.FC = () => {
 
             <Col xs={24} sm={12}>
               <Form.Item
-                name="code"
-                label="Mã nhóm làm việc"
-                rules={[
-                  { required: true, message: 'Vui lòng nhập mã nhóm' },
-                  { min: 2, message: 'Mã nhóm tối thiểu 2 ký tự' },
-                  { max: 50, message: 'Mã nhóm tối đa 50 ký tự' },
-                  {
-                    pattern: /^[A-Za-z0-9_-]+$/,
-                    message: 'Mã nhóm chỉ chứa chữ cái, số, dấu gạch nối (- hoặc _)',
-                  },
-                ]}
-              >
-                <Input
-                  placeholder="Ví dụ: SALES_HN_01"
-                  size="large"
-                  style={{ textTransform: 'uppercase' }}
-                />
-              </Form.Item>
-            </Col>
-
-            <Col xs={24} sm={12}>
-              <Form.Item
                 name="department"
                 label="Phòng ban trực thuộc"
                 rules={[{ required: true, message: 'Vui lòng chọn phòng ban trực thuộc' }]}
               >
-                <Select placeholder="-- Chọn phòng ban --" size="large">
+                <Select
+                  placeholder="-- Chọn phòng ban --"
+                  size="large"
+                  onChange={handleDepartmentChange}
+                >
                   <Select.Option value="SALES">Phòng Kinh doanh (SALES)</Select.Option>
                   <Select.Option value="DEV">Phòng Kỹ thuật / Công nghệ (DEV)</Select.Option>
                   <Select.Option value="SEO">Phòng SEO & Tăng trưởng (SEO)</Select.Option>
                   <Select.Option value="OPERATION">Phòng Vận hành (OPERATION)</Select.Option>
                 </Select>
+              </Form.Item>
+            </Col>
+
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="code"
+                label="Mã nhóm làm việc (Tự sinh từ hệ thống)"
+                extra={
+                  loadingCode
+                    ? 'Đang kiểm tra DB và sinh mã nhóm tiếp theo...'
+                    : 'Mã nhóm được hệ thống tự động sinh theo phòng ban và số thứ tự DB.'
+                }
+              >
+                <Input
+                  readOnly
+                  placeholder="Hệ thống tự sinh sau khi chọn phòng ban (ví dụ: SALES_01)"
+                  size="large"
+                  prefix={
+                    loadingCode ? (
+                      <LoadingOutlined style={{ color: '#1677ff' }} />
+                    ) : (
+                      <LockOutlined style={{ color: '#8c8c8c' }} />
+                    )
+                  }
+                  style={{
+                    backgroundColor: '#fafafa',
+                    cursor: 'not-allowed',
+                    fontWeight: 600,
+                    color: '#1677ff',
+                  }}
+                />
               </Form.Item>
             </Col>
 

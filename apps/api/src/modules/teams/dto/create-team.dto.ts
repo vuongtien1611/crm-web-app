@@ -13,10 +13,10 @@ export class CreateTeamDto {
   @MaxLength(100)
   name!: string;
 
-  @IsNotEmpty({ message: 'Mã nhóm làm việc là bắt buộc' })
+  @IsOptional()
   @IsString()
   @MaxLength(50)
-  code!: string;
+  code?: string;
 
   @IsNotEmpty({ message: 'Phòng ban trực thuộc là bắt buộc' })
   @IsEnum(TeamDepartment, {

@@ -7,6 +7,7 @@ import {
   Query,
   UseGuards,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import { PayrollService } from './payroll.service';
 import { CreatePayrollPeriodDto } from './dto/create-payroll-period.dto';
@@ -48,29 +49,32 @@ export class PayrollController {
   @Post('periods/:id/calculate')
   @RequirePermissions('PAYROLL_CALCULATE')
   async calculatePayrollPeriod(@Param('id') id: string, @Req() req: any) {
-    const actorEmployeeId = req.user?.employee_id || req.user?.id;
-    return await this.payrollService.calculatePayrollPeriod(id, actorEmployeeId);
+    const actorEmployeeId = req.user?.employeeId || req.user?.employee_id;
+    return await this.payrollService.calculatePayrollPeriod(id, actorEmployeeId ? String(actorEmployeeId) : undefined);
   }
 
   @Post('periods/:id/submit-review')
   @RequirePermissions('PAYROLL_REVIEW')
   async submitReview(@Param('id') id: string, @Req() req: any) {
-    const actorEmployeeId = req.user?.employee_id || req.user?.id;
-    return await this.payrollService.submitReview(id, actorEmployeeId);
+    const actorEmployeeId = req.user?.employeeId || req.user?.employee_id;
+    return await this.payrollService.submitReview(id, actorEmployeeId ? String(actorEmployeeId) : undefined);
   }
 
   @Post('periods/:id/approve')
   @RequirePermissions('PAYROLL_APPROVE')
   async approvePeriod(@Param('id') id: string, @Req() req: any) {
-    const actorEmployeeId = req.user?.employee_id || req.user?.id;
-    return await this.payrollService.approvePeriod(id, actorEmployeeId);
+    const actorEmployeeId = req.user?.employeeId || req.user?.employee_id;
+    return await this.payrollService.approvePeriod(id, actorEmployeeId ? String(actorEmployeeId) : undefined);
   }
 
   @Post('periods/:id/lock')
   @RequirePermissions('PAYROLL_LOCK')
   async lockPeriod(@Param('id') id: string, @Req() req: any) {
-    const actorEmployeeId = req.user?.employee_id || req.user?.id;
-    return await this.payrollService.lockPeriod(id, actorEmployeeId);
+    const actorEmployeeId = req.user?.employeeId || req.user?.employee_id;
+    if (!actorEmployeeId) {
+      throw new BadRequestException('Thao tác yêu cầu tài khoản người dùng phải được liên kết với một nhân viên hợp lệ.');
+    }
+    return await this.payrollService.lockPeriod(id, String(actorEmployeeId));
   }
 
   @Post('periods/:id/adjustments')
@@ -80,8 +84,11 @@ export class PayrollController {
     @Body() dto: CreatePayrollAdjustmentDto,
     @Req() req: any,
   ) {
-    const actorEmployeeId = req.user?.employee_id || req.user?.id;
-    return await this.payrollService.createAdjustment(id, dto, actorEmployeeId);
+    const actorEmployeeId = req.user?.employeeId || req.user?.employee_id;
+    if (!actorEmployeeId) {
+      throw new BadRequestException('Thao tác yêu cầu tài khoản người dùng phải được liên kết với một nhân viên hợp lệ.');
+    }
+    return await this.payrollService.createAdjustment(id, dto, String(actorEmployeeId));
   }
 
   @Get('periods/:id/employees')

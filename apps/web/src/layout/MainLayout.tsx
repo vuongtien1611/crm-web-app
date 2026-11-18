@@ -1,44 +1,21 @@
 import React, { useState } from 'react';
 import { Layout, Menu, Typography, Tag, Space, Button, Drawer, Breadcrumb, Tooltip } from 'antd';
 import {
-  DashboardOutlined,
-  UsergroupAddOutlined,
-  TrophyOutlined,
-  FileTextOutlined,
-  FolderOutlined,
-  DollarOutlined,
-  CompassOutlined,
   LogoutOutlined,
-  AuditOutlined,
-  GiftOutlined,
-  BankOutlined,
-  WalletOutlined,
-  TeamOutlined,
-  FundOutlined,
-  ToolOutlined,
-  GlobalOutlined,
-  FileDoneOutlined,
-  SyncOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MenuOutlined,
   HomeOutlined,
-  BellOutlined,
-  CalendarOutlined,
-  ClockCircleOutlined,
-  UserAddOutlined,
-  CheckSquareOutlined,
-  SafetyCertificateOutlined,
-  ApartmentOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { logoutApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
 import { getRoleLabel } from '../constants/labels';
 import { NotificationBell } from '../components/notifications/NotificationBell';
+import { getSidebarMenuForRoles } from '../config/navigation.config';
 
 const { Header, Content, Sider } = Layout;
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -49,137 +26,7 @@ export const MainLayout: React.FC = () => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState<boolean>(false);
 
   const roles = user?.roles || [];
-  const isBoss = roles.includes('BOSS');
-  const isAdmin = roles.includes('ADMIN');
-  const isSalesLeader = roles.includes('SALES_TEAM_LEADER');
-  const isSale = roles.includes('SALE');
-  const isDevLeader = roles.includes('DEV_TEAM_LEADER');
-  const isDev = roles.includes('DEV');
-  const isSeoLeader = roles.includes('SEO_TEAM_LEADER');
-  const isSeo = roles.includes('SEO');
-  const isAccountant = roles.includes('ACCOUNTANT');
-
-  let menuItems: { key: string; icon: React.ReactNode; label: string }[] = [];
-
-  if (isBoss) {
-    menuItems = [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard điều hành' },
-      { key: '/organization-chart', icon: <ApartmentOutlined />, label: 'Sơ đồ nhân sự' },
-      { key: '/employee-accounts', icon: <SafetyCertificateOutlined />, label: 'Quản lý tài khoản nhân sự' },
-      { key: '/employees', icon: <TeamOutlined />, label: 'Danh sách nhân sự' },
-      { key: '/teams', icon: <UsergroupAddOutlined />, label: 'Teams' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/leads', icon: <UsergroupAddOutlined />, label: 'Leads' },
-      { key: '/deals', icon: <TrophyOutlined />, label: 'Deals' },
-      { key: '/orders', icon: <FileTextOutlined />, label: 'Orders' },
-      { key: '/subscriptions', icon: <SyncOutlined />, label: 'Subscriptions' },
-      { key: '/projects', icon: <FolderOutlined />, label: 'Projects' },
-      { key: '/finance/overview', icon: <BankOutlined />, label: 'Tổng quan tài chính' },
-      { key: '/finance/receivables', icon: <DollarOutlined />, label: 'Công nợ phải thu' },
-      { key: '/finance/cashflow', icon: <SyncOutlined />, label: 'Sổ cái dòng tiền' },
-      { key: '/payments', icon: <DollarOutlined />, label: 'Payments' },
-      { key: '/commissions', icon: <AuditOutlined />, label: 'Commissions' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI' },
-      { key: '/payroll', icon: <BankOutlined />, label: 'Payroll' },
-      { key: '/expenses', icon: <WalletOutlined />, label: 'Expenses' },
-      { key: '/acquisition', icon: <CompassOutlined />, label: 'Acquisition' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isSalesLeader) {
-    menuItems = [
-      { key: '/workspace/sales', icon: <FundOutlined />, label: 'Dashboard Team Sale' },
-      { key: '/leads', icon: <UsergroupAddOutlined />, label: 'Leads Team' },
-      { key: '/deals', icon: <TrophyOutlined />, label: 'Deals Team' },
-      { key: '/orders', icon: <FileTextOutlined />, label: 'Orders Team' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI & Doanh số Team' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/teams', icon: <TeamOutlined />, label: 'Nhân sự Team' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isSale) {
-    menuItems = [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard cá nhân' },
-      { key: '/leads', icon: <UsergroupAddOutlined />, label: 'Leads của tôi' },
-      { key: '/deals', icon: <TrophyOutlined />, label: 'Deals của tôi' },
-      { key: '/orders', icon: <FileTextOutlined />, label: 'Orders của tôi' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI & Doanh số' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isDevLeader) {
-    menuItems = [
-      { key: '/workspace/dev', icon: <ToolOutlined />, label: 'Dashboard Team Dev' },
-      { key: '/projects', icon: <FolderOutlined />, label: 'Projects Team' },
-      { key: '/projects?tab=assign', icon: <UserAddOutlined />, label: 'Phân công Project' },
-      { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Task & Tiến độ' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI Team' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/teams', icon: <TeamOutlined />, label: 'Nhân sự Team' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isDev) {
-    menuItems = [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard cá nhân' },
-      { key: '/projects', icon: <FolderOutlined />, label: 'Projects của tôi' },
-      { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Tasks của tôi' },
-      { key: '/commissions', icon: <AuditOutlined />, label: 'Hoa hồng cá nhân' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI cá nhân' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isSeoLeader) {
-    menuItems = [
-      { key: '/workspace/seo', icon: <GlobalOutlined />, label: 'Dashboard Team SEO' },
-      { key: '/projects', icon: <FolderOutlined />, label: 'Projects SEO Team' },
-      { key: '/projects?tab=assign', icon: <UserAddOutlined />, label: 'Phân công SEO' },
-      { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Task & Tiến độ' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI & Doanh số Team' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/teams', icon: <TeamOutlined />, label: 'Nhân sự Team' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isSeo) {
-    menuItems = [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard cá nhân' },
-      { key: '/projects', icon: <FolderOutlined />, label: 'Projects của tôi' },
-      { key: '/projects?tab=tasks', icon: <CheckSquareOutlined />, label: 'Tasks của tôi' },
-      { key: '/commissions', icon: <AuditOutlined />, label: 'Hoa hồng cá nhân' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI cá nhân' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else if (isAccountant) {
-    menuItems = [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan kế toán' },
-      { key: '/payments', icon: <DollarOutlined />, label: 'Thanh toán & Thu tiền' },
-      { key: '/payroll', icon: <BankOutlined />, label: 'Bảng lương' },
-      { key: '/expenses', icon: <WalletOutlined />, label: 'Chi phí' },
-      { key: '/orders', icon: <FileTextOutlined />, label: 'Đơn hàng' },
-      { key: '/subscriptions', icon: <SyncOutlined />, label: 'Dịch vụ định kỳ' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  } else {
-    // Default / Admin
-    menuItems = [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard điều hành' },
-      { key: '/reports', icon: <FileDoneOutlined />, label: 'Báo cáo' },
-      { key: '/leads', icon: <UsergroupAddOutlined />, label: 'Leads' },
-      { key: '/deals', icon: <TrophyOutlined />, label: 'Deals' },
-      { key: '/orders', icon: <FileTextOutlined />, label: 'Orders' },
-      { key: '/subscriptions', icon: <SyncOutlined />, label: 'Subscriptions' },
-      { key: '/projects', icon: <FolderOutlined />, label: 'Projects' },
-      { key: '/payments', icon: <DollarOutlined />, label: 'Payments' },
-      { key: '/commissions', icon: <AuditOutlined />, label: 'Commissions' },
-      { key: '/kpi', icon: <GiftOutlined />, label: 'KPI' },
-      { key: '/payroll', icon: <BankOutlined />, label: 'Payroll' },
-      { key: '/expenses', icon: <WalletOutlined />, label: 'Expenses' },
-      { key: '/employees', icon: <TeamOutlined />, label: 'Employees' },
-      { key: '/teams', icon: <UsergroupAddOutlined />, label: 'Teams' },
-      { key: '/acquisition', icon: <CompassOutlined />, label: 'Acquisition' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
-    ];
-  }
+  const menuItems = getSidebarMenuForRoles(roles);
 
   const handleLogout = async () => {
     await logoutApi();
@@ -187,10 +34,9 @@ export const MainLayout: React.FC = () => {
   };
 
   const fullPath = location.pathname + location.search;
-  const exactMatch = menuItems.find((m) => m.key === fullPath);
-  const selectedKey = exactMatch
-    ? exactMatch.key
-    : location.pathname.startsWith('/reports') || location.pathname.startsWith('/daily-reports')
+  const exactMatch = menuItems.find((m) => m && 'key' in m && m.key === fullPath);
+  const selectedKey: string = (exactMatch && 'key' in exactMatch && exactMatch.key ? String(exactMatch.key) : '')
+    || (location.pathname.startsWith('/reports') || location.pathname.startsWith('/daily-reports')
     ? '/reports'
     : location.pathname.startsWith('/projects')
     ? location.search.includes('tab=assign')
@@ -232,7 +78,7 @@ export const MainLayout: React.FC = () => {
     ? '/workspace/sales'
     : location.pathname.startsWith('/workspace/seo')
     ? '/workspace/seo'
-    : location.pathname;
+    : location.pathname);
 
   const getBreadcrumbs = () => {
     const items: { title: React.ReactNode }[] = [

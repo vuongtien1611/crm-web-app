@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { KyselyService } from '../../database/kysely.service';
+import { sql } from 'kysely';
 
 export interface UserRecord {
   id: string;
@@ -17,11 +18,22 @@ export class UsersService {
   constructor(private readonly kysely: KyselyService) {}
 
   async findByIdentifier(identifier: string): Promise<UserRecord | null> {
+    if (!identifier || typeof identifier !== 'string') return null;
+    const clean = identifier.trim();
+    if (!clean) return null;
+
     const db = this.kysely.db;
     const user = await db
       .selectFrom('users')
       .selectAll()
-      .where((eb: any) => eb.or([eb('username', '=', identifier), eb('email', '=', identifier)]))
+      .where((eb: any) =>
+        eb.or([
+          eb('username', '=', clean),
+          eb('email', '=', clean),
+          sql`LOWER(username) = LOWER(${clean})`,
+          sql`LOWER(email) = LOWER(${clean})`,
+        ]),
+      )
       .executeTakeFirst();
 
     return (user as unknown as UserRecord) || null;

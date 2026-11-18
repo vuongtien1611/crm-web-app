@@ -85,7 +85,7 @@ export const DetailPageHeader: React.FC<DetailPageHeaderProps> = ({
         {/* Action buttons */}
         {(actions || extra) && (
           <div className="vmax-detail-actions">
-            <Space wrap size={10}>
+            <Space wrap size={10} style={{ width: '100%', flexWrap: 'wrap' }}>
               {actions}
               {extra}
             </Space>

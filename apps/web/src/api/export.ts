@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export async function downloadExportFile(
   endpoint: string,
@@ -15,7 +13,7 @@ export async function downloadExportFile(
   });
 
   const queryString = query.toString();
-  const url = `${API_BASE_URL}/${endpoint.replace(/^\//, '')}${queryString ? `?${queryString}` : ''}`;
+  const url = buildApiUrl(`/${endpoint.replace(/^\//, '')}${queryString ? `?${queryString}` : ''}`);
 
   const response = await fetchWithAuth(url, {
     method: 'GET',

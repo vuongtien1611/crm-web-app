@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface ExpenseCategory {
   id: string;
@@ -50,7 +48,7 @@ export interface ProcessPayrollExpensePayload {
 }
 
 export async function getExpenseCategories(): Promise<ExpenseCategory[]> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/expenses/categories`);
+  const res = await fetchWithAuth(buildApiUrl('/expenses/categories'));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải danh mục chi phí');
@@ -70,7 +68,7 @@ export async function getExpenses(params?: {
   if (params?.sourceType && params.sourceType !== 'ALL') query.set('sourceType', params.sourceType);
   if (params?.categoryId && params.categoryId !== 'ALL') query.set('categoryId', params.categoryId);
 
-  const res = await fetchWithAuth(`${API_BASE_URL}/expenses?${query.toString()}`);
+  const res = await fetchWithAuth(buildApiUrl(`/expenses?${query.toString()}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải danh sách chi phí');
@@ -79,7 +77,7 @@ export async function getExpenses(params?: {
 }
 
 export async function getExpenseById(id: string): Promise<ExpenseItem> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/expenses/${id}`);
+  const res = await fetchWithAuth(buildApiUrl(`/expenses/${id}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Không thể tải chi tiết khoản chi #${id}`);
@@ -88,7 +86,7 @@ export async function getExpenseById(id: string): Promise<ExpenseItem> {
 }
 
 export async function createManualExpense(payload: CreateManualExpensePayload): Promise<ExpenseItem> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/expenses/manual`, {
+  const res = await fetchWithAuth(buildApiUrl('/expenses/manual'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -101,7 +99,7 @@ export async function createManualExpense(payload: CreateManualExpensePayload): 
 }
 
 export async function createExpenseFromPayroll(payload: ProcessPayrollExpensePayload): Promise<ExpenseItem> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/expenses/from-payroll`, {
+  const res = await fetchWithAuth(buildApiUrl('/expenses/from-payroll'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

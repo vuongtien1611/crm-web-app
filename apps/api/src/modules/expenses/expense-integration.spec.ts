@@ -19,9 +19,15 @@ async function cleanupExpenseFixtures(kysely: KyselyService) {
   const isTestEnv = process.env.NODE_ENV === 'test';
   const isTeardownAllowed = process.env.ALLOW_PRIVILEGED_TEST_TEARDOWN === 'true';
   const currentDb = await getCurrentDatabaseName(kysely);
-  const expectedDb = process.env.TEST_DATABASE_NAME || 'crm_db';
+  const expectedDb = process.env.TEST_DATABASE_NAME || 'crm_test_db';
 
-  if (!isTestEnv || !isTeardownAllowed || currentDb !== expectedDb) {
+  if (
+    !isTestEnv ||
+    !isTeardownAllowed ||
+    currentDb !== expectedDb ||
+    currentDb === 'crm_db' ||
+    /(prod|staging)/i.test(currentDb)
+  ) {
     console.error(`SECURITY GUARD ABORT: Teardown blocked on DB '${currentDb}'`);
     throw new Error(`SECURITY GUARD ABORT: Teardown blocked on DB '${currentDb}'`);
   }

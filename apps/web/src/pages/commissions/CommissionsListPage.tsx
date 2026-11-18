@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Card, Button, Space, Typography, Select, Row, Col, Statistic, message } from 'antd';
+import { Table, Tag, Card, Button, Space, Typography, Select, Row, Col, Statistic, App } from 'antd';
 import { DollarOutlined, EyeOutlined, CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { fetchCommissions, CommissionItem } from '../../api/commissions';
@@ -9,6 +9,7 @@ import { createRowNavigateHandler } from '../../utils/tableUtils';
 const { Title, Text } = Typography;
 
 export const CommissionsListPage: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [loading, setLoading] = useState<boolean>(false);
   const [data, setData] = useState<CommissionItem[]>([]);

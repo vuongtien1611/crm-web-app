@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Modal, Spin, message, Space, Typography } from 'antd';
+import { Button, Modal, Spin, Space, Typography, App } from 'antd';
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -40,6 +40,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
   type = 'default',
   iconOnly = false,
 }) => {
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);

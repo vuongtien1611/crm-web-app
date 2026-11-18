@@ -31,7 +31,10 @@ export const Login: React.FC = () => {
   });
 
   const onFinish = (values: any) => {
-    mutation.mutate(values);
+    mutation.mutate({
+      identifier: values.identifier ? values.identifier.trim() : '',
+      password: values.password ? values.password.trim() : '',
+    });
   };
 
   return (

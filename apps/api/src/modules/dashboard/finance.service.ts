@@ -132,14 +132,8 @@ export class FinanceService {
         sql<number>`count(id)`.as('count'),
         sql<number>`coalesce(sum(gross_amount_due), 0)`.as('amount'),
       ])
-      .where((eb) =>
-        eb.or([
-          eb('status', '=', 'OVERDUE'),
-          eb.and([
-            eb('status', 'in', ['PENDING', 'PARTIALLY_PAID']),
-            eb('due_date', '<', sql<Date>`CURRENT_DATE`),
-          ]),
-        ]),
+      .where(
+        sql<boolean>`status = 'OVERDUE' OR (status IN ('PENDING', 'PARTIALLY_PAID') AND due_date < CURRENT_DATE)`,
       )
       .executeTakeFirst();
     const overdueAmount = Number(overdueRes?.amount || 0);
@@ -150,8 +144,8 @@ export class FinanceService {
       .selectFrom('payment_installments')
       .select(sql<number>`coalesce(sum(gross_amount_due), 0)`.as('amount'))
       .where('status', 'in', ['PENDING', 'PARTIALLY_PAID'])
-      .where('due_date', '>=', sql<Date>`CURRENT_DATE`)
-      .where('due_date', '<=', sql<Date>`CURRENT_DATE + INTERVAL '7 days'`)
+      .where(sql<boolean>`due_date >= CURRENT_DATE`)
+      .where(sql<boolean>`due_date <= CURRENT_DATE + INTERVAL '7 days'`)
       .executeTakeFirst();
     const nearDue7DaysAmount = Number(nearDueRes?.amount || 0);
 

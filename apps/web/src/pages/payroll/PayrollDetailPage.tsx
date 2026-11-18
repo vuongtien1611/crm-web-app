@@ -10,7 +10,7 @@ import {
   Form,
   Input,
   InputNumber,
-  message,
+  App,
   Spin,
 } from 'antd';
 import {
@@ -35,6 +35,7 @@ import {
   addPayrollAdjustment,
   PayrollPeriod,
   EmployeePayrollItem,
+  PayrollApiError,
 } from '../../api/payroll';
 import { getStatusLabel, formatCurrency, formatDate } from '../../constants/labels';
 import { createRowNavigateHandler } from '../../utils/tableUtils';
@@ -42,16 +43,20 @@ import { DetailPageHeader } from '../../components/common/detail/DetailPageHeade
 import { DetailSummaryCard, DetailSummaryGrid } from '../../components/common/detail/DetailSummaryCard';
 import { DetailInfoCard } from '../../components/common/detail/DetailInfoCard';
 import { DetailRelatedList } from '../../components/common/detail/DetailRelatedList';
+import { PermissionGate } from '../../components/PermissionGate';
+import { PayrollErrorState } from './PayrollErrorState';
 
 const { Text } = Typography;
 
 export const PayrollDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { periodId } = useParams<{ periodId: string }>();
   const navigate = useNavigate();
   // Chỉ loading toàn màn hình ở lần đầu mở trang
   const [loading, setLoading] = useState<boolean>(true);
   const [period, setPeriod] = useState<PayrollPeriod | null>(null);
   const [employees, setEmployees] = useState<EmployeePayrollItem[]>([]);
+  const [errorState, setErrorState] = useState<{ status?: number; message: string } | null>(null);
   // Quản lý trạng thái đang xử lý theo từng nút bấm
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -61,8 +66,17 @@ export const PayrollDetailPage: React.FC = () => {
 
   // Tải chi tiết bảng lương - không unmount giao diện khi refresh ngầm
   const loadData = async (isInitial = false) => {
-    if (!periodId) return;
-    if (isInitial) setLoading(true);
+    if (!periodId) {
+      setPeriod(null);
+      setEmployees([]);
+      setErrorState({ status: 404, message: 'Thiếu mã kỳ tính lương.' });
+      setLoading(false);
+      return;
+    }
+    if (isInitial) {
+      setLoading(true);
+      setErrorState(null);
+    }
     try {
       const [periodData, empList] = await Promise.all([
         fetchPayrollPeriodById(periodId),
@@ -70,8 +84,16 @@ export const PayrollDetailPage: React.FC = () => {
       ]);
       setPeriod(periodData);
       setEmployees(empList);
-    } catch (err: any) {
-      message.error(err.message || 'Không thể tải chi tiết kỳ tính lương');
+      setErrorState(null);
+    } catch (err: unknown) {
+      const apiErr = err as PayrollApiError;
+      const errMsg = apiErr?.message || 'Không thể tải chi tiết kỳ tính lương';
+      if (isInitial) {
+        setPeriod(null);
+        setEmployees([]);
+        setErrorState({ status: apiErr?.status, message: errMsg });
+      }
+      message.error(errMsg);
     } finally {
       if (isInitial) setLoading(false);
     }
@@ -162,13 +184,27 @@ export const PayrollDetailPage: React.FC = () => {
     }
   };
 
-  if (loading || !period) {
+  if (loading) {
     return (
       <div className="vmax-detail-page">
         <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
           <Spin size="large" />
         </div>
       </div>
+    );
+  }
+
+  if (errorState || !period) {
+    return (
+      <PayrollErrorState
+        status={errorState?.status ?? 404}
+        message={errorState?.message}
+        notFoundTitle={`Không tìm thấy kỳ lương #${periodId || ''}`}
+        notFoundSubTitle={`Kỳ tính lương #${periodId || ''} không tồn tại hoặc đã bị xóa.`}
+        backLabel="Quay lại danh sách kỳ lương"
+        onBack={() => navigate('/payroll')}
+        onRetry={() => loadData(true)}
+      />
     );
   }
 
@@ -290,54 +326,64 @@ export const PayrollDetailPage: React.FC = () => {
           <Space wrap>
             {!isLocked && (
               <>
-                <Button
-                  icon={<SyncOutlined />}
-                  loading={actionLoading === 'calc'}
-                  disabled={!!actionLoading}
-                  onClick={handleCalculate}
-                >
-                  Tính lại lương
-                </Button>
-                {period.status === 'CALCULATING' && (
+                <PermissionGate capability="PAYROLL_CALCULATE">
                   <Button
-                    icon={<FileSearchOutlined />}
-                    loading={actionLoading === 'submit'}
+                    icon={<SyncOutlined />}
+                    loading={actionLoading === 'calc'}
                     disabled={!!actionLoading}
-                    onClick={handleSubmitReview}
+                    onClick={handleCalculate}
                   >
-                    Gửi duyệt
+                    Tính lại lương
                   </Button>
+                </PermissionGate>
+                {period.status === 'CALCULATING' && (
+                  <PermissionGate capability="PAYROLL_REVIEW">
+                    <Button
+                      icon={<FileSearchOutlined />}
+                      loading={actionLoading === 'submit'}
+                      disabled={!!actionLoading}
+                      onClick={handleSubmitReview}
+                    >
+                      Gửi duyệt
+                    </Button>
+                  </PermissionGate>
                 )}
                 {period.status === 'REVIEW' && (
-                  <Button
-                    type="primary"
-                    icon={<CheckCircleOutlined />}
-                    loading={actionLoading === 'approve'}
-                    disabled={!!actionLoading}
-                    onClick={handleApprove}
-                    style={{ background: 'var(--vmax-green)', borderColor: 'var(--vmax-green)' }}
-                  >
-                    Duyệt bảng lương
-                  </Button>
+                  <PermissionGate capability="PAYROLL_APPROVE">
+                    <Button
+                      type="primary"
+                      icon={<CheckCircleOutlined />}
+                      loading={actionLoading === 'approve'}
+                      disabled={!!actionLoading}
+                      onClick={handleApprove}
+                      style={{ background: 'var(--vmax-green)', borderColor: 'var(--vmax-green)' }}
+                    >
+                      Duyệt bảng lương
+                    </Button>
+                  </PermissionGate>
                 )}
                 {period.status === 'APPROVED' && (
-                  <Button
-                    danger
-                    icon={<LockOutlined />}
-                    loading={actionLoading === 'lock'}
-                    disabled={!!actionLoading}
-                    onClick={handleLock}
-                  >
-                    Khóa chốt bảng lương
-                  </Button>
+                  <PermissionGate capability="PAYROLL_LOCK">
+                    <Button
+                      danger
+                      icon={<LockOutlined />}
+                      loading={actionLoading === 'lock'}
+                      disabled={!!actionLoading}
+                      onClick={handleLock}
+                    >
+                      Khóa chốt bảng lương
+                    </Button>
+                  </PermissionGate>
                 )}
-                <Button
-                  icon={<PlusOutlined />}
-                  disabled={!!actionLoading}
-                  onClick={() => setIsAdjModalOpen(true)}
-                >
-                  Thêm điều chỉnh
-                </Button>
+                <PermissionGate capability="PAYROLL_REVIEW">
+                  <Button
+                    icon={<PlusOutlined />}
+                    disabled={!!actionLoading}
+                    onClick={() => setIsAdjModalOpen(true)}
+                  >
+                    Thêm điều chỉnh
+                  </Button>
+                </PermissionGate>
               </>
             )}
             {isLocked && (

@@ -9,6 +9,17 @@ export interface ApiResponse<T = any> {
   timestamp: string;
 }
 
+export interface ApiErrorResponse {
+  statusCode: number;
+  error: string;
+  message: string;
+  details?: any;
+  timestamp: string;
+  path: string;
+  correlationId?: string;
+  success: false;
+}
+
 export interface HealthCheckResponse {
   status: 'ok' | 'error';
   database: 'connected' | 'disconnected';

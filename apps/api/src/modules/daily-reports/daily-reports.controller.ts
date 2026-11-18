@@ -185,4 +185,19 @@ export class DailyReportsController {
       user.roles || [],
     );
   }
+
+  @Delete(':id')
+  async deleteDailyReport(
+    @Param('id') id: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    if (!user?.employeeId) {
+      throw new UnauthorizedException('Employee identity required');
+    }
+    return this.dailyReportsService.deleteDailyReport(
+      id,
+      String(user.employeeId),
+      user.roles || [],
+    );
+  }
 }

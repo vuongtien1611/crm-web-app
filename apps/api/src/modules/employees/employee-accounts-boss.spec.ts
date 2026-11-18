@@ -198,6 +198,19 @@ async function runBossAccountManagementTests() {
       .returningAll()
       .execute();
 
+    const bossRole = await db
+      .selectFrom('roles')
+      .selectAll()
+      .where('code', '=', 'BOSS')
+      .executeTakeFirst();
+    if (bossRole) {
+      await db
+        .insertInto('user_roles')
+        .values({ user_id: bossUser.id, role_id: bossRole.id })
+        .onConflict((oc) => oc.doNothing())
+        .execute();
+    }
+
     const testSessionId = `session-boss-test-${runId}`;
 
     // -------------------------------------------------------------
@@ -479,6 +492,7 @@ async function runBossAccountManagementTests() {
       }
       const userIds = [testUser?.id, bossUser?.id].filter(Boolean);
       if (userIds.length > 0) {
+        await db.deleteFrom('user_roles').where('user_id', 'in', userIds as any).execute();
         await db.deleteFrom('users').where('id', 'in', userIds as any).execute();
       }
       if (testTeam?.id) {

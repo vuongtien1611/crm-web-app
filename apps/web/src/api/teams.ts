@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export type TeamDepartment = 'SALES' | 'DEV' | 'SEO' | 'OPERATION';
 
@@ -59,9 +57,14 @@ export interface TeamDetailResponse {
 
 export interface CreateTeamPayload {
   name: string;
-  code: string;
+  code?: string;
   department: TeamDepartment;
   description?: string;
+}
+
+export interface PreviewTeamCodeResponse {
+  department: TeamDepartment;
+  code: string;
 }
 
 export interface AssignMemberPayload {
@@ -90,7 +93,7 @@ export async function getTeams(params?: {
   if (params?.department) query.append('department', params.department);
   if (params?.search) query.append('search', params.search);
 
-  const url = `${API_BASE_URL}/teams${query.toString() ? `?${query.toString()}` : ''}`;
+  const url = buildApiUrl(`/teams${query.toString() ? `?${query.toString()}` : ''}`);
   const res = await fetchWithAuth(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -100,7 +103,7 @@ export async function getTeams(params?: {
 }
 
 export async function getTeamById(id: string): Promise<TeamDetailResponse> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/${id}`);
+  const res = await fetchWithAuth(buildApiUrl(`/teams/${id}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Không thể tải thông tin nhóm #${id}`);
@@ -109,7 +112,7 @@ export async function getTeamById(id: string): Promise<TeamDetailResponse> {
 }
 
 export async function getTeamMembers(id: string): Promise<TeamMemberItem[]> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/${id}/members`);
+  const res = await fetchWithAuth(buildApiUrl(`/teams/${id}/members`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải danh sách thành viên của nhóm');
@@ -118,7 +121,7 @@ export async function getTeamMembers(id: string): Promise<TeamMemberItem[]> {
 }
 
 export async function getTeamHistory(id: string): Promise<TeamMemberItem[]> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/${id}/history`);
+  const res = await fetchWithAuth(buildApiUrl(`/teams/${id}/history`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải lịch sử thành viên của nhóm');
@@ -126,8 +129,20 @@ export async function getTeamHistory(id: string): Promise<TeamMemberItem[]> {
   return res.json();
 }
 
+export async function getPreviewTeamCode(
+  department: TeamDepartment,
+): Promise<PreviewTeamCodeResponse> {
+  const query = new URLSearchParams({ department });
+  const res = await fetchWithAuth(buildApiUrl(`/teams/preview-code?${query.toString()}`));
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể xem trước mã nhóm');
+  }
+  return res.json();
+}
+
 export async function createTeam(payload: CreateTeamPayload): Promise<any> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams`, {
+  const res = await fetchWithAuth(buildApiUrl('/teams'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -143,7 +158,7 @@ export async function assignMember(
   teamId: string,
   payload: AssignMemberPayload,
 ): Promise<any> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/${teamId}/assign-member`, {
+  const res = await fetchWithAuth(buildApiUrl(`/teams/${teamId}/assign-member`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -159,7 +174,7 @@ export async function moveMember(
   teamId: string,
   payload: MoveMemberPayload,
 ): Promise<any> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/${teamId}/move-member`, {
+  const res = await fetchWithAuth(buildApiUrl(`/teams/${teamId}/move-member`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -175,7 +190,7 @@ export async function changeLeader(
   teamId: string,
   payload: ChangeLeaderPayload,
 ): Promise<any> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/${teamId}/change-leader`, {
+  const res = await fetchWithAuth(buildApiUrl(`/teams/${teamId}/change-leader`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -221,7 +236,7 @@ export async function getSalesWorkspaceSummaryApi(
   period?: string,
 ): Promise<SalesWorkspaceSummaryResponse> {
   const query = period ? `?period=${period}` : '';
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/workspaces/sales/summary${query}`);
+  const res = await fetchWithAuth(buildApiUrl(`/teams/workspaces/sales/summary${query}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải dữ liệu Sales Workspace');
@@ -287,7 +302,7 @@ export async function getDevWorkspaceSummaryApi(
   period?: string,
 ): Promise<DevWorkspaceSummaryResponse> {
   const query = period ? `?period=${period}` : '';
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/workspaces/dev/summary${query}`);
+  const res = await fetchWithAuth(buildApiUrl(`/teams/workspaces/dev/summary${query}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải dữ liệu Dev Workspace');
@@ -303,7 +318,7 @@ export async function getSeoWorkspaceSummaryApi(
   period?: string,
 ): Promise<SeoWorkspaceSummaryResponse> {
   const query = period ? `?period=${period}` : '';
-  const res = await fetchWithAuth(`${API_BASE_URL}/teams/workspaces/seo/summary${query}`);
+  const res = await fetchWithAuth(buildApiUrl(`/teams/workspaces/seo/summary${query}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải dữ liệu SEO Workspace');

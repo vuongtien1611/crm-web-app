@@ -1,6 +1,4 @@
-import { fetchWithAuth } from './auth';
-
-const API_BASE_URL = '/api';
+import { fetchWithAuth, buildApiUrl } from './auth';
 
 export interface NotificationItem {
   id: string;
@@ -42,7 +40,7 @@ export async function getNotificationsApi(
   }
 
   const qs = query.toString();
-  const url = `${API_BASE_URL}/notifications${qs ? `?${qs}` : ''}`;
+  const url = buildApiUrl(`/notifications${qs ? `?${qs}` : ''}`);
   const res = await fetchWithAuth(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -57,7 +55,7 @@ export async function getNotificationsApi(
 }
 
 export async function getUnreadCountApi(): Promise<{ unreadCount: number }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/notifications/unread-count`);
+  const res = await fetchWithAuth(buildApiUrl('/notifications/unread-count'));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải số thông báo chưa đọc');
@@ -66,7 +64,7 @@ export async function getUnreadCountApi(): Promise<{ unreadCount: number }> {
 }
 
 export async function markNotificationReadApi(id: string): Promise<NotificationItem> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/notifications/${id}/read`, {
+  const res = await fetchWithAuth(buildApiUrl(`/notifications/${id}/read`), {
     method: 'PATCH',
   });
   if (!res.ok) {
@@ -77,7 +75,7 @@ export async function markNotificationReadApi(id: string): Promise<NotificationI
 }
 
 export async function markAllNotificationsReadApi(): Promise<{ updatedCount: number }> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/notifications/read-all`, {
+  const res = await fetchWithAuth(buildApiUrl('/notifications/read-all'), {
     method: 'PATCH',
   });
   if (!res.ok) {
@@ -86,3 +84,20 @@ export async function markAllNotificationsReadApi(): Promise<{ updatedCount: num
   }
   return res.json();
 }
+
+export async function sendTestNotificationApi(payload?: {
+  title?: string;
+  content?: string;
+}): Promise<{ success: boolean; message: string; notification: NotificationItem }> {
+  const res = await fetchWithAuth(buildApiUrl('/notifications/test'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Không thể gửi thông báo thử nghiệm');
+  }
+  return res.json();
+}
+

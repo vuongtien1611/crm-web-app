@@ -12,6 +12,14 @@ import { CreatePayrollAdjustmentDto } from './dto/create-payroll-adjustment.dto'
 
 import { NotificationsService } from '../notifications/notifications.service';
 
+export interface PayrollActorUser {
+  id?: string | number;
+  employeeId?: string | number;
+  employee_id?: string | number;
+  roles?: string[];
+  permissions?: string[];
+}
+
 @Injectable()
 export class PayrollService {
   constructor(
@@ -357,7 +365,7 @@ export class PayrollService {
         // 4. TEAM LEADER OVERRIDE (DIRECT CALCULATION FROM payment_allocations.closing_sale_id)
         // STRICT RULE: ONLY SALES_TEAM_LEADER receives 2% team override. Dev & SEO Leaders get 0%.
         let teamOverrideAmount = 0;
-        const tlTraceAllocations: Array<{ id: number; amount: number }> = [];
+        const tlTraceAllocations: Array<{ id: string; amount: number }> = [];
 
         const empPosition = await trx
           .selectFrom('positions')
@@ -419,7 +427,7 @@ export class PayrollService {
           .execute();
 
         let kpiBonusAmount = 0;
-        const kpiTraceEvents: Array<{ id: number; bonus: number; type: string }> = [];
+        const kpiTraceEvents: Array<{ id: string; bonus: number; type: string }> = [];
 
         // Sale Cash Revenue Tier
         const saleCashEvents = kpiEvents.filter((e) => e.source_type === 'PAYMENT_ALLOCATION');
@@ -434,7 +442,7 @@ export class PayrollService {
         }
         if (saleKpiBonus > 0) {
           kpiBonusAmount += saleKpiBonus;
-          kpiTraceEvents.push({ id: saleCashEvents[0]?.id || 0, bonus: saleKpiBonus, type: 'SALE_CASH_REVENUE' });
+          kpiTraceEvents.push({ id: saleCashEvents[0]?.id || '', bonus: saleKpiBonus, type: 'SALE_CASH_REVENUE' });
         }
 
         // SEO Articles Tier
@@ -448,7 +456,7 @@ export class PayrollService {
         }
         if (seoKpiBonus > 0) {
           kpiBonusAmount += seoKpiBonus;
-          kpiTraceEvents.push({ id: seoEvents[0]?.id || 0, bonus: seoKpiBonus, type: 'SEO_ARTICLE_COUNT' });
+          kpiTraceEvents.push({ id: seoEvents[0]?.id || '', bonus: seoKpiBonus, type: 'SEO_ARTICLE_COUNT' });
         }
 
         const adjustmentAmount = 0;
@@ -658,10 +666,10 @@ export class PayrollService {
         )
         .execute();
 
-      const commIds: number[] = [];
+      const commIds: string[] = [];
       for (const item of lineItems) {
         const match = item.description?.match(/commission_id:\s*(\d+)/);
-        if (match) commIds.push(parseInt(match[1], 10));
+        if (match) commIds.push(match[1]);
       }
 
       // Mark included commissions' status as IN_PAYROLL (NOT PAID!)
@@ -829,11 +837,11 @@ export class PayrollService {
   /**
    * Get Employee Payroll Statements for a Period with Object Authorization
    */
-  async findPeriodEmployees(periodId: string, user: any) {
+  async findPeriodEmployees(periodId: string, user: PayrollActorUser) {
     const period = await this.kysely.db
       .selectFrom('payroll_periods')
       .selectAll()
-      .where('id', '=', periodId as any)
+      .where('id', '=', periodId)
       .executeTakeFirst();
 
     if (!period) throw new NotFoundException(`Payroll period #${periodId} not found`);
@@ -859,9 +867,10 @@ export class PayrollService {
 
     const isManagement = user?.roles?.some((r: string) => ['ADMIN', 'BOSS', 'ACCOUNTANT'].includes(r));
     const hasReadAll = user?.permissions?.includes('PAYROLL_READ_ALL');
+    const currentEmpId = user?.employeeId || user?.employee_id;
 
-    if (!isManagement && !hasReadAll && user?.employee_id) {
-      query = query.where('payrolls.employee_id', '=', user.employee_id);
+    if (!isManagement && !hasReadAll && currentEmpId) {
+      query = query.where('payrolls.employee_id', '=', String(currentEmpId));
     }
 
     return await query.execute();
@@ -870,11 +879,12 @@ export class PayrollService {
   /**
    * Get Single Employee Payroll Detail
    */
-  async findEmployeePayrollDetail(periodId: string, employeeId: string, user: any) {
+  async findEmployeePayrollDetail(periodId: string, employeeId: string, user: PayrollActorUser) {
     const isManagement = user?.roles?.some((r: string) => ['ADMIN', 'BOSS', 'ACCOUNTANT'].includes(r));
     const hasReadAll = user?.permissions?.includes('PAYROLL_READ_ALL');
+    const currentEmpId = user?.employeeId || user?.employee_id;
 
-    if (!isManagement && !hasReadAll && String(user?.employee_id) !== String(employeeId)) {
+    if (!isManagement && !hasReadAll && String(currentEmpId) !== String(employeeId)) {
       throw new ForbiddenException('Cannot read another employee\'s payroll');
     }
 

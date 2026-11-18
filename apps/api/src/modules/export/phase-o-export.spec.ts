@@ -8,6 +8,7 @@ import { PermissionsGuard } from '../rbac/guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../../redis/redis.service';
 import * as ExcelJS from 'exceljs';
 import * as jwt from 'jsonwebtoken';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
@@ -30,11 +31,12 @@ async function runPhaseOExportSuite() {
   const kysely = app.get<KyselyService>(KyselyService);
   const db = kysely.db;
   const configService = app.get<ConfigService>(ConfigService);
+  const redisService = app.get<RedisService>(RedisService);
   const reflector = app.get<Reflector>(Reflector);
   const exportService = app.get<ExportService>(ExportService);
   const exportController = app.get<ExportController>(ExportController);
   const permissionsGuard = new PermissionsGuard(reflector);
-  const jwtAuthGuard = new JwtAuthGuard(reflector, configService);
+  const jwtAuthGuard = new JwtAuthGuard(reflector, configService, redisService);
 
   const runId = Math.floor(Math.random() * 1000000);
 
@@ -508,11 +510,12 @@ async function runPhaseOExportSuite() {
     let hasTeamALead = false;
     wsLeaderA!.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
+      const cellId = String(row.getCell(1).value ?? '');
       const rowStr = JSON.stringify(row.values);
-      if (rowStr.includes('0922000002') || rowStr.includes(String(lead2.id))) {
+      if (rowStr.includes('0922000002') || cellId === String(lead2.id)) {
         hasTeamBLead = true;
       }
-      if (rowStr.includes('0911000001') || rowStr.includes(String(lead1.id))) {
+      if (rowStr.includes('0911000001') || cellId === String(lead1.id)) {
         hasTeamALead = true;
       }
     });
@@ -530,11 +533,12 @@ async function runPhaseOExportSuite() {
     let sale1HasLead1 = false;
     wsSale1!.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
+      const cellId = String(row.getCell(1).value ?? '');
       const rowStr = JSON.stringify(row.values);
-      if (rowStr.includes('0922000002') || rowStr.includes(String(lead2.id))) {
+      if (rowStr.includes('0922000002') || cellId === String(lead2.id)) {
         sale1HasLead2 = true;
       }
-      if (rowStr.includes('0911000001') || rowStr.includes(String(lead1.id))) {
+      if (rowStr.includes('0911000001') || cellId === String(lead1.id)) {
         sale1HasLead1 = true;
       }
     });
@@ -713,7 +717,7 @@ async function runPhaseOExportSuite() {
     };
     let noJwtBlocked = false;
     try {
-      jwtAuthGuard.canActivate(noJwtContext);
+      await jwtAuthGuard.canActivate(noJwtContext);
     } catch (err: any) {
       if (err instanceof UnauthorizedException) noJwtBlocked = true;
     }
@@ -738,7 +742,7 @@ async function runPhaseOExportSuite() {
         getRequest: () => validJwtReq,
       }),
     };
-    const jwtPassed = jwtAuthGuard.canActivate(validJwtContext);
+    const jwtPassed = await jwtAuthGuard.canActivate(validJwtContext);
     assert(jwtPassed && validJwtReq.user, 'EX-11B: Valid JWT authenticated successfully by JwtAuthGuard');
 
     let permissionBlocked = false;

@@ -11,7 +11,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { TeamsService } from './teams.service';
-import { CreateTeamDto } from './dto/create-team.dto';
+import { CreateTeamDto, TeamDepartment } from './dto/create-team.dto';
 import { AssignMemberDto } from './dto/assign-member.dto';
 import { MoveMemberDto } from './dto/move-member.dto';
 import { ChangeLeaderDto } from './dto/change-leader.dto';
@@ -62,6 +62,23 @@ export class TeamsController {
     return this.teamsService.getSeoWorkspaceSummary(user!, period);
   }
 
+  @Get('preview-code')
+  @RequirePermissions('TEAM_READ')
+  async getPreviewTeamCode(
+    @Query('department') department?: string,
+  ) {
+    if (!department || !Object.values(TeamDepartment).includes(department as TeamDepartment)) {
+      throw new BadRequestException(
+        'Phòng ban không hợp lệ. Phải là một trong các giá trị: SALES, DEV, SEO, OPERATION',
+      );
+    }
+    const code = await this.teamsService.generateNextTeamCode(department as TeamDepartment);
+    return {
+      department: department as TeamDepartment,
+      code,
+    };
+  }
+
   @Post()
   @RequirePermissions('TEAM_CREATE')
   @HttpCode(HttpStatus.CREATED)
@@ -70,7 +87,8 @@ export class TeamsController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const actorEmployeeId = user?.employeeId || '1';
-    return this.teamsService.createTeam(dto, actorEmployeeId);
+    // Backend is source of truth: auto-generate canonical team code upon creation
+    return this.teamsService.createTeam(dto, actorEmployeeId, { forceAutoCode: true });
   }
 
   @Get(':id')

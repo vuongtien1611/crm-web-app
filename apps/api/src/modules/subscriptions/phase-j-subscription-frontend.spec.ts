@@ -3,7 +3,7 @@ import { AppModule } from '../../app.module';
 import { KyselyService } from '../../database/kysely.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { SubscriptionsController } from './subscriptions.controller';
-import { NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { sql } from 'kysely';
 
 function assert(condition: boolean, testName: string, extra?: string) {
@@ -144,6 +144,47 @@ async function runPhaseJSubscriptionSuite() {
       .returningAll()
       .execute();
 
+    const accountantCandidateUser = { employeeId: emp.id, roles: ['ACCOUNTANT'] };
+    const eligibleOrderItems = await subController.getEligibleOrderItems(accountantCandidateUser);
+    assert(
+      eligibleOrderItems.some((item) => item.orderItemId === String(orderItem.id)),
+      'SUB-CREATE: Accountant sees approved recurring order items that have no subscription',
+    );
+
+    const [cancelledRecurringItem] = await db
+      .insertInto('order_items')
+      .values({
+        order_id: order.id,
+        closing_sale_id: emp.id,
+        service_id: srv.id,
+        requirement_template_id: reqTemplateId,
+        requirement_template_version: 1,
+        original_price: 1000000,
+        discount_amount: 0,
+        net_service_value: 1000000,
+        vat_amount: 100000,
+        approval_status: 'CANCELLED',
+        delivery_status: 'CANCELLED',
+        payment_status: 'UNPAID',
+      })
+      .returningAll()
+      .execute();
+    assert(
+      !eligibleOrderItems.some((item) => item.orderItemId === String(cancelledRecurringItem.id)),
+      'SUB-CREATE: Cancelled recurring order items are not offered for contract creation',
+    );
+
+    let nonAccountantCandidateAccessDenied = false;
+    try {
+      await subController.getEligibleOrderItems({ employeeId: emp.id, roles: ['SALE'] });
+    } catch (error) {
+      nonAccountantCandidateAccessDenied = error instanceof ForbiddenException;
+    }
+    assert(
+      nonAccountantCandidateAccessDenied,
+      'SUB-CREATE: Eligible order item list is restricted to accountants and administrators',
+    );
+
     // 2. Create Subscription & generate 2 periods
     const sub = await subService.createSubscription({
       orderItemId: String(orderItem.id),
@@ -152,6 +193,50 @@ async function runPhaseJSubscriptionSuite() {
       autoRenew: true,
     });
     const subId = String(sub.id);
+    const eligibleAfterCreate = await subController.getEligibleOrderItems(accountantCandidateUser);
+    assert(
+      !eligibleAfterCreate.some((item) => item.orderItemId === String(orderItem.id)),
+      'SUB-CREATE: Order item disappears from eligible list after a subscription is created',
+    );
+
+    const [projectService] = await db
+      .insertInto('services')
+      .values({
+        name: `Project Service ${runId}`,
+        code: `SRV-PROJECT-${runId}`,
+        service_type: 'PROJECT',
+        is_active: true,
+      })
+      .returningAll()
+      .execute();
+    const [projectOrderItem] = await db
+      .insertInto('order_items')
+      .values({
+        order_id: order.id,
+        closing_sale_id: emp.id,
+        service_id: projectService.id,
+        requirement_template_id: reqTemplateId,
+        requirement_template_version: 1,
+        original_price: 1000000,
+        discount_amount: 0,
+        net_service_value: 1000000,
+        vat_amount: 100000,
+        approval_status: 'APPROVED',
+        delivery_status: 'IN_PROGRESS',
+        payment_status: 'UNPAID',
+      })
+      .returningAll()
+      .execute();
+    let nonRecurringSubscriptionRejected = false;
+    try {
+      await subService.createSubscription({ orderItemId: String(projectOrderItem.id) });
+    } catch (error) {
+      nonRecurringSubscriptionRejected = error instanceof BadRequestException;
+    }
+    assert(
+      nonRecurringSubscriptionRejected,
+      'SUB-CREATE: Project order items cannot be converted into subscriptions',
+    );
 
     const periodsRes = await subService.generateServicePeriods(subId, 2);
     const period1 = periodsRes[0];

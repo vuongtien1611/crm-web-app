@@ -39,7 +39,7 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@v4
         with:
-          version: 8.15.1
+          version: 9.15.4
           run_install: false
 
       - name: Setup Node.js 20
@@ -168,7 +168,7 @@ jobs:
           service: crm-worker
           region: ${{ env.GCP_REGION }}
           image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
-          args: 'node,apps/api/dist/src/worker.main.js'
+          args: 'node,apps/api/dist/worker.main.js'
           flags: >-
             --min-instances=1
             --no-cpu-throttling
@@ -193,7 +193,7 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@v4
         with:
-          version: 8.15.1
+          version: 9.15.4
           run_install: false
 
       - name: Setup Node.js 20
@@ -204,6 +204,15 @@ jobs:
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Validate Production API URL
+        env:
+          VITE_API_URL: ${{ secrets.PRODUCTION_API_BASE_URL }}
+        run: |
+          if [ -z "$VITE_API_URL" ]; then
+            echo "::error::PRODUCTION_API_BASE_URL must be configured for the production frontend build."
+            exit 1
+          fi
 
       - name: Build Web Application
         env:

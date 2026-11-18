@@ -15,7 +15,7 @@ import {
   Modal,
   Form,
   Select,
-  message,
+  App,
   Statistic,
 } from 'antd';
 import {
@@ -65,6 +65,7 @@ const DEPARTMENT_LABELS: Record<TeamDepartment, { label: string; color: string }
 };
 
 export const TeamDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();

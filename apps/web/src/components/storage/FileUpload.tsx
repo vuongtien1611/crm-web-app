@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, message, Button, Card, Typography, Space, Progress } from 'antd';
+import { Upload, Button, Card, Typography, Space, Progress, App } from 'antd';
 import {
   InboxOutlined,
   FilePdfOutlined,
@@ -35,6 +35,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   onSuccess,
   disabled = false,
 }) => {
+  const { message } = App.useApp();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentFile, setCurrentFile] = useState<{

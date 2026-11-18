@@ -48,6 +48,7 @@ import { EmployeeAccountDetailPage } from './pages/employee-accounts/EmployeeAcc
 import { OrganizationChartPage } from './pages/organization-chart/OrganizationChartPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { RoleRoute } from './components/RoleRoute';
+import { ROUTE_ROLE_PERMISSIONS } from './config/navigation.config';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -168,7 +169,7 @@ export const App: React.FC = () => {
                   <Route path="/commissions/:id" element={<CommissionDetailPage />} />
 
                   {/* Sales Routes (BOSS, ADMIN, SALES_TEAM_LEADER, SALE) */}
-                  <Route element={<RoleRoute allowedRoles={['SALES_TEAM_LEADER', 'SALE']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.SALES} />}>
                     <Route path="/leads" element={<LeadsListPage />} />
                     <Route path="/leads/:id" element={<LeadDetailPage />} />
                     <Route path="/deals" element={<DealsListPage />} />
@@ -176,25 +177,25 @@ export const App: React.FC = () => {
                   </Route>
 
                   {/* Orders Routes (BOSS, ADMIN, ACCOUNTANT, SALES_TEAM_LEADER, SALE) */}
-                  <Route element={<RoleRoute allowedRoles={['SALES_TEAM_LEADER', 'SALE', 'ACCOUNTANT']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.ORDERS} />}>
                     <Route path="/orders" element={<OrdersListPage />} />
                     <Route path="/orders/:id" element={<OrderDetailPage />} />
                   </Route>
 
                   {/* Subscriptions Routes */}
-                  <Route element={<RoleRoute allowedRoles={['SALES_TEAM_LEADER', 'SALE', 'ACCOUNTANT', 'DEV_TEAM_LEADER', 'SEO_TEAM_LEADER']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.SUBSCRIPTIONS} />}>
                     <Route path="/subscriptions" element={<SubscriptionsListPage />} />
                     <Route path="/subscriptions/:id" element={<SubscriptionDetailPage />} />
                   </Route>
 
                   {/* Projects Routes (DEV_TEAM_LEADER, DEV, SEO_TEAM_LEADER, SEO, SALES_TEAM_LEADER, SALE) */}
-                  <Route element={<RoleRoute allowedRoles={['DEV_TEAM_LEADER', 'DEV', 'SEO_TEAM_LEADER', 'SEO', 'SALES_TEAM_LEADER', 'SALE']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.PROJECTS} />}>
                     <Route path="/projects" element={<ProjectsListPage />} />
                     <Route path="/projects/:id" element={<ProjectDetailPage />} />
                   </Route>
 
                   {/* Finance Routes (BOSS, ADMIN, ACCOUNTANT only) */}
-                  <Route element={<RoleRoute allowedRoles={['ACCOUNTANT']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.FINANCE} />}>
                     <Route path="/finance/overview" element={<FinancialOverviewPage />} />
                     <Route path="/finance/receivables" element={<ReceivablesPage />} />
                     <Route path="/finance/cashflow" element={<CashflowPage />} />
@@ -209,7 +210,7 @@ export const App: React.FC = () => {
                   </Route>
 
                   {/* HR & Management Routes (BOSS, ADMIN only) */}
-                  <Route element={<RoleRoute allowedRoles={[]} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.HR_MANAGEMENT} />}>
                     <Route path="/employees" element={<EmployeesListPage />} />
                     <Route path="/employees/new" element={<CreateEmployeePage />} />
                     <Route path="/employees/:id" element={<EmployeeDetailPage />} />
@@ -217,27 +218,27 @@ export const App: React.FC = () => {
                   </Route>
 
                   {/* Employee Accounts Management (Strict BOSS only) */}
-                  <Route element={<RoleRoute allowedRoles={['BOSS']} strict />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.STRICT_BOSS} strict />}>
                     <Route path="/employee-accounts" element={<EmployeeAccountsListPage />} />
                     <Route path="/employee-accounts/:employeeId" element={<EmployeeAccountDetailPage />} />
                     <Route path="/organization-chart" element={<OrganizationChartPage />} />
                   </Route>
 
                   {/* Teams Routes (BOSS, ADMIN, Team Leaders) */}
-                  <Route element={<RoleRoute allowedRoles={['SALES_TEAM_LEADER', 'DEV_TEAM_LEADER', 'SEO_TEAM_LEADER']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.TEAMS} />}>
                     <Route path="/teams" element={<TeamsListPage />} />
                     <Route path="/teams/new" element={<CreateTeamPage />} />
                     <Route path="/teams/:id" element={<TeamDetailPage />} />
                   </Route>
 
                   {/* Workspaces */}
-                  <Route element={<RoleRoute allowedRoles={['SALES_TEAM_LEADER']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.WORKSPACE_SALES} />}>
                     <Route path="/workspace/sales" element={<SalesLeaderWorkspacePage />} />
                   </Route>
-                  <Route element={<RoleRoute allowedRoles={['DEV_TEAM_LEADER']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.WORKSPACE_DEV} />}>
                     <Route path="/workspace/dev" element={<DevLeaderWorkspacePage />} />
                   </Route>
-                  <Route element={<RoleRoute allowedRoles={['SEO_TEAM_LEADER']} />}>
+                  <Route element={<RoleRoute allowedRoles={ROUTE_ROLE_PERMISSIONS.WORKSPACE_SEO} />}>
                     <Route path="/workspace/seo" element={<SeoLeaderWorkspacePage />} />
                   </Route>
 

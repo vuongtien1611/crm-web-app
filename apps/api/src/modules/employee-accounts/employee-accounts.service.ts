@@ -5,7 +5,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import { KyselyService } from '../../database/kysely.service';
+import { KyselyService, CrmTransaction } from '../../database/kysely.service';
 import { RedisService } from '../../redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { sql } from 'kysely';
@@ -532,11 +532,11 @@ export class EmployeeAccountsService {
     updates.updated_at = new Date();
 
     // 6. Execute update in transaction
-    await db.transaction().execute(async (trx: any) => {
+    await db.transaction().execute(async (trx: CrmTransaction) => {
       await trx
         .updateTable('users')
         .set(updates)
-        .where('id', '=', employee.user_id as any)
+        .where('id', '=', employee.user_id)
         .execute();
 
       // If password was reset, mark pending reset requests as RESOLVED

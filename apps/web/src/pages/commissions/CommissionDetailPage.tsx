@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tag, Button, Space, Typography, Modal, InputNumber, Input, message } from 'antd';
+import { Tag, Button, Space, Typography, Modal, InputNumber, Input, App } from 'antd';
 import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
@@ -29,6 +29,7 @@ import {
 const { Title, Text } = Typography;
 
 export const CommissionDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   // Chỉ loading ở lần đầu mở trang

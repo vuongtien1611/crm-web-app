@@ -22,6 +22,7 @@ import { CreatePaymentModal } from '../../components/payments/CreatePaymentModal
 import { ConfirmPaymentModal } from '../../components/payments/ConfirmPaymentModal';
 import { getStatusLabel, formatCurrency, formatDateTime } from '../../constants/labels';
 import { createRowNavigateHandler } from '../../utils/tableUtils';
+import { PermissionGate } from '../../components/PermissionGate';
 
 const { Title, Text } = Typography;
 
@@ -246,35 +247,39 @@ export const PaymentsListPage: React.FC = () => {
         <Space>
           {record.status === 'PENDING_CONFIRMATION' && (
             <>
-              <Button
-                type="primary"
-                size="small"
-                icon={<CheckCircleOutlined />}
-                onClick={() => {
-                  setSelectedPayment(record);
-                  setConfirmModalVisible(true);
-                }}
-              >
-                Xác nhận
-              </Button>
-              <Popconfirm
-                title="Từ chối giao dịch thanh toán này?"
-                description="Giao dịch sẽ được đánh dấu là Đã từ chối và không thể phân bổ."
-                onConfirm={() => handleReject(record.id)}
-                okText="Đồng ý từ chối"
-                cancelText="Hủy"
-                disabled={!!actionLoadingId}
-              >
+              <PermissionGate capability="PAYMENT_CONFIRM">
                 <Button
-                  danger
+                  type="primary"
                   size="small"
-                  icon={<CloseCircleOutlined />}
-                  loading={actionLoadingId === record.id}
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => {
+                    setSelectedPayment(record);
+                    setConfirmModalVisible(true);
+                  }}
+                >
+                  Xác nhận
+                </Button>
+              </PermissionGate>
+              <PermissionGate capability="PAYMENT_REJECT">
+                <Popconfirm
+                  title="Từ chối giao dịch thanh toán này?"
+                  description="Giao dịch sẽ được đánh dấu là Đã từ chối và không thể phân bổ."
+                  onConfirm={() => handleReject(record.id)}
+                  okText="Đồng ý từ chối"
+                  cancelText="Hủy"
                   disabled={!!actionLoadingId}
                 >
-                  Từ chối
-                </Button>
-              </Popconfirm>
+                  <Button
+                    danger
+                    size="small"
+                    icon={<CloseCircleOutlined />}
+                    loading={actionLoadingId === record.id}
+                    disabled={!!actionLoadingId}
+                  >
+                    Từ chối
+                  </Button>
+                </Popconfirm>
+              </PermissionGate>
             </>
           )}
           <Button size="small" onClick={() => navigate(`/payments/${record.id}`)}>
@@ -330,9 +335,11 @@ export const PaymentsListPage: React.FC = () => {
             <Select.Option value="REJECTED">Đã từ chối</Select.Option>
           </Select>
 
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
-            Ghi nhận thanh toán mới
-          </Button>
+          <PermissionGate capability="PAYMENT_CREATE">
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+              Ghi nhận thanh toán mới
+            </Button>
+          </PermissionGate>
         </Space>
 
         <Table

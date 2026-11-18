@@ -6,7 +6,7 @@ import {
   Button,
   Space,
   Typography,
-  message,
+  App,
   Modal,
   Spin,
 } from 'antd';
@@ -25,9 +25,11 @@ import {
   EmployeePayrollDetail,
   PayrollItemLine,
   PayrollAdjustment,
+  PayrollApiError,
 } from '../../api/payroll';
 import { formatCurrency, formatDateTime } from '../../constants/labels';
 import { createRowActionHandler } from '../../utils/tableUtils';
+import { PayrollErrorState } from './PayrollErrorState';
 import { DetailPageHeader } from '../../components/common/detail/DetailPageHeader';
 import { DetailSummaryCard, DetailSummaryGrid } from '../../components/common/detail/DetailSummaryCard';
 import { DetailInfoCard } from '../../components/common/detail/DetailInfoCard';
@@ -36,21 +38,33 @@ import { DetailRelatedList } from '../../components/common/detail/DetailRelatedL
 const { Text } = Typography;
 
 export const EmployeePayrollDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const { periodId, employeeId } = useParams<{ periodId: string; employeeId: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState<boolean>(true);
   const [data, setData] = useState<EmployeePayrollDetail | null>(null);
+  const [errorState, setErrorState] = useState<{ status?: number; message: string } | null>(null);
   const [selectedItem, setSelectedItem] = useState<PayrollItemLine | null>(null);
   const [selectedAdjustment, setSelectedAdjustment] = useState<PayrollAdjustment | null>(null);
 
   const loadData = async () => {
-    if (!periodId || !employeeId) return;
+    if (!periodId || !employeeId) {
+      setData(null);
+      setErrorState({ status: 404, message: 'Thiếu thông tin kỳ lương hoặc nhân viên.' });
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setErrorState(null);
     try {
       const detail = await fetchEmployeePayrollDetail(periodId, employeeId);
       setData(detail);
-    } catch (err: any) {
-      message.error(err.message || 'Không thể tải chi tiết phiếu lương nhân viên');
+    } catch (err: unknown) {
+      const apiErr = err as PayrollApiError;
+      const errMsg = apiErr?.message || 'Không thể tải chi tiết phiếu lương nhân viên';
+      setData(null);
+      setErrorState({ status: apiErr?.status, message: errMsg });
+      message.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -60,13 +74,27 @@ export const EmployeePayrollDetailPage: React.FC = () => {
     loadData();
   }, [periodId, employeeId]);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="vmax-detail-page">
         <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
           <Spin size="large" />
         </div>
       </div>
+    );
+  }
+
+  if (errorState || !data) {
+    return (
+      <PayrollErrorState
+        status={errorState?.status ?? 404}
+        message={errorState?.message}
+        notFoundTitle={`Không tìm thấy phiếu lương nhân viên #${employeeId || ''}`}
+        notFoundSubTitle={`Nhân viên #${employeeId || ''} chưa có phiếu lương trong kỳ #${periodId || ''} hoặc dữ liệu không tồn tại.`}
+        backLabel={periodId ? 'Quay lại kỳ lương' : 'Danh sách kỳ lương'}
+        onBack={() => navigate(periodId ? `/payroll/${periodId}` : '/payroll')}
+        onRetry={() => loadData()}
+      />
     );
   }
 

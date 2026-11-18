@@ -1,7 +1,5 @@
-import { fetchWithAuth } from './auth';
+import { fetchWithAuth, buildApiUrl } from './auth';
 import { FinanceOverviewData } from './finance';
-
-const API_BASE_URL = '/api';
 
 export interface ExecutiveDashboardData {
   period: string;
@@ -97,7 +95,7 @@ export async function getExecutiveDashboardApi(
   period?: string,
 ): Promise<ExecutiveDashboardData> {
   const query = period ? `?period=${period}` : '';
-  const res = await fetchWithAuth(`${API_BASE_URL}/dashboard/executive${query}`);
+  const res = await fetchWithAuth(buildApiUrl(`/dashboard/executive${query}`));
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Không thể tải dữ liệu Executive Dashboard');
