@@ -584,12 +584,16 @@ DECLARE
     v_pos_sale BIGINT;
     v_pos_tl BIGINT;
     v_pos_dev BIGINT;
+    v_pos_seo BIGINT;
     v_srv_web BIGINT;
+    v_srv_seo BIGINT;
 BEGIN
     SELECT id INTO v_pos_sale FROM positions WHERE code = 'SALE';
     SELECT id INTO v_pos_tl FROM positions WHERE code = 'SALES_TEAM_LEADER';
     SELECT id INTO v_pos_dev FROM positions WHERE code = 'DEV';
+    SELECT id INTO v_pos_seo FROM positions WHERE code = 'SEO';
     SELECT id INTO v_srv_web FROM services WHERE code = 'WEB';
+    SELECT id INTO v_srv_seo FROM services WHERE code = 'SEO';
 
     -- 1) Sale Commission Policy: SALE Position -> 6%
     IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'SALE' AND position_id = v_pos_sale AND service_id IS NULL AND assignee_count IS NULL) THEN
@@ -629,6 +633,50 @@ BEGIN
     ELSE
         INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
         VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Project (2 Dev Chính)', 'PROJECT_DELIVERY', v_srv_web, v_pos_dev, 2, 0.0200, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+    END IF;
+
+    -- 5) Project Delivery Commission: 3% for 1 Primary SEO
+    IF v_pos_seo IS NOT NULL THEN
+        IF v_srv_seo IS NOT NULL THEN
+            IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_seo AND position_id = v_pos_seo AND assignee_count = 1) THEN
+                UPDATE commission_policies 
+                SET rate = 0.0300, policy_name = 'Chính Sách Hoa Hồng Kỹ Thuật Project SEO (1 SEO Chính)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+                WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_seo AND position_id = v_pos_seo AND assignee_count = 1;
+            ELSE
+                INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+                VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Project SEO (1 SEO Chính)', 'PROJECT_DELIVERY', v_srv_seo, v_pos_seo, 1, 0.0300, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+            END IF;
+
+            -- 6) Project Delivery Commission: 2% EACH for 2 Primary SEOs
+            IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_seo AND position_id = v_pos_seo AND assignee_count = 2) THEN
+                UPDATE commission_policies 
+                SET rate = 0.0200, policy_name = 'Chính Sách Hoa Hồng Kỹ Thuật Project SEO (2 SEO Chính)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+                WHERE policy_type = 'PROJECT_DELIVERY' AND service_id = v_srv_seo AND position_id = v_pos_seo AND assignee_count = 2;
+            ELSE
+                INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+                VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Project SEO (2 SEO Chính)', 'PROJECT_DELIVERY', v_srv_seo, v_pos_seo, 2, 0.0200, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+            END IF;
+        END IF;
+
+        -- 7) Generic Delivery Policy for SEO position across ANY service: 1 Primary SEO -> 3%
+        IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'PROJECT_DELIVERY' AND service_id IS NULL AND position_id = v_pos_seo AND assignee_count = 1) THEN
+            UPDATE commission_policies 
+            SET rate = 0.0300, policy_name = 'Chính Sách Hoa Hồng Kỹ Thuật Giao Dự Án (1 SEO Chính)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+            WHERE policy_type = 'PROJECT_DELIVERY' AND service_id IS NULL AND position_id = v_pos_seo AND assignee_count = 1;
+        ELSE
+            INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+            VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Giao Dự Án (1 SEO Chính)', 'PROJECT_DELIVERY', NULL, v_pos_seo, 1, 0.0300, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+        END IF;
+
+        -- 8) Generic Delivery Policy for SEO position across ANY service: 2 Primary SEOs -> 2% EACH
+        IF EXISTS (SELECT 1 FROM commission_policies WHERE policy_type = 'PROJECT_DELIVERY' AND service_id IS NULL AND position_id = v_pos_seo AND assignee_count = 2) THEN
+            UPDATE commission_policies 
+            SET rate = 0.0200, policy_name = 'Chính Sách Hoa Hồng Kỹ Thuật Giao Dự Án (2 SEO Chính)', effective_range = tstzrange('2026-01-01 00:00:00+00', NULL, '[)')
+            WHERE policy_type = 'PROJECT_DELIVERY' AND service_id IS NULL AND position_id = v_pos_seo AND assignee_count = 2;
+        ELSE
+            INSERT INTO commission_policies (policy_name, policy_type, service_id, position_id, assignee_count, rate, effective_range)
+            VALUES ('Chính Sách Hoa Hồng Kỹ Thuật Giao Dự Án (2 SEO Chính)', 'PROJECT_DELIVERY', NULL, v_pos_seo, 2, 0.0200, tstzrange('2026-01-01 00:00:00+00', NULL, '[)'));
+        END IF;
     END IF;
 
     -- 5) Team Leader Override Policy: 2% Override for Sales Team Leader
