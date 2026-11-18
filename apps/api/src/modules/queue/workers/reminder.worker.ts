@@ -43,6 +43,7 @@ export class ReminderWorker implements OnModuleInit, OnModuleDestroy {
       {
         connection,
         concurrency: 3,
+        prefix: this.queueService.getPrefix(),
       },
     );
 

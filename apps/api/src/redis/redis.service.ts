@@ -21,6 +21,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         host: redisConfig.host || 'localhost',
         port: redisConfig.port || 6379,
         password: redisConfig.password,
+        db: redisConfig.db !== undefined ? redisConfig.db : (process.env.REDIS_DB ? parseInt(process.env.REDIS_DB, 10) : 0),
         tls: redisConfig.tls ? {} : undefined,
         lazyConnect: true,
         maxRetriesPerRequest: 3,

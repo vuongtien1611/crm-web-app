@@ -33,6 +33,7 @@ export class MaintenanceWorker implements OnModuleInit, OnModuleDestroy {
       {
         connection,
         concurrency: 2,
+        prefix: this.queueService.getPrefix(),
       },
     );
 

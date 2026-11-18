@@ -49,6 +49,14 @@ if (args.length === 0) {
 }
 
 const safeTestDb = resolveAndValidateTestDb();
+const safeRedisDb = process.env.TEST_REDIS_DB || process.env.REDIS_DB || '1';
+if (safeRedisDb === '0' && process.env.ALLOW_SHARED_REDIS_DB !== 'true') {
+  console.error(
+    `[TEST REDIS GUARD ABORT] REDIS_DB='${safeRedisDb}' matches live staging Redis DB 0. Tests must use isolated REDIS_DB (default: '1') to prevent queue worker race conditions.`,
+  );
+  process.exit(1);
+}
+
 const apiRoot = path.resolve(__dirname, '..');
 const tsNodeBin = require.resolve('ts-node/dist/bin.js', { paths: [apiRoot] });
 
@@ -61,6 +69,8 @@ const result = spawnSync(process.execPath, [tsNodeBin, ...args], {
     ALLOW_PRIVILEGED_TEST_TEARDOWN: 'true',
     DATABASE_NAME: safeTestDb,
     TEST_DATABASE_NAME: safeTestDb,
+    REDIS_DB: safeRedisDb,
+    BULLMQ_PREFIX: process.env.TEST_BULLMQ_PREFIX || 'test-bull',
   },
 });
 

@@ -142,7 +142,7 @@ async function runPhaseNJobsSuite() {
     // =========================================================================
     console.log('\n--- BQ-03: Job Fail -> Retry with Exponential Backoff ---');
     const testQueueName = `test-retry-queue-${runId}`;
-    const testQueue = new Queue(testQueueName, { connection: queueService.getRedisConnectionOptions() });
+    const testQueue = new Queue(testQueueName, { connection: queueService.getRedisConnectionOptions(), prefix: queueService.getPrefix() });
 
     let attemptsObserved = 0;
     const retryWorker = new Worker(
@@ -154,7 +154,7 @@ async function runPhaseNJobsSuite() {
         }
         return { success: true };
       },
-      { connection: queueService.getRedisConnectionOptions() },
+      { connection: queueService.getRedisConnectionOptions(), prefix: queueService.getPrefix() },
     );
 
     const retryJob = await testQueue.add(
@@ -186,7 +186,7 @@ async function runPhaseNJobsSuite() {
     // =========================================================================
     console.log('\n--- BQ-04: Max Attempts Exhaustion -> Failed State ---');
     const testFailQueueName = `test-fail-queue-${runId}`;
-    const testFailQueue = new Queue(testFailQueueName, { connection: queueService.getRedisConnectionOptions() });
+    const testFailQueue = new Queue(testFailQueueName, { connection: queueService.getRedisConnectionOptions(), prefix: queueService.getPrefix() });
 
     let failAttempts = 0;
     const failWorker = new Worker(
@@ -195,7 +195,7 @@ async function runPhaseNJobsSuite() {
         failAttempts++;
         throw new Error('Permanent poison error');
       },
-      { connection: queueService.getRedisConnectionOptions() },
+      { connection: queueService.getRedisConnectionOptions(), prefix: queueService.getPrefix() },
     );
 
     const failJob = await testFailQueue.add(

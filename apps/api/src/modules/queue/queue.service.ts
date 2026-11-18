@@ -24,12 +24,15 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
           host: redisConfig.host || process.env.REDIS_HOST || 'localhost',
           port: redisConfig.port || parseInt(process.env.REDIS_PORT || '6379', 10),
           password: redisConfig.password || process.env.REDIS_PASSWORD || undefined,
+          db: redisConfig.db !== undefined ? redisConfig.db : (process.env.REDIS_DB ? parseInt(process.env.REDIS_DB, 10) : 0),
           tls: redisConfig.tls ? {} : undefined,
           maxRetriesPerRequest: null,
         };
 
+    const prefix = process.env.BULLMQ_PREFIX || 'bull';
     const queueOptions: QueueOptions = {
       connection: this.redisConnectionOptions,
+      prefix,
     };
 
     for (const queueName of Object.values(QUEUE_NAMES)) {
@@ -65,6 +68,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
   getRedisConnectionOptions() {
     return this.redisConnectionOptions;
+  }
+
+  getPrefix(): string {
+    return process.env.BULLMQ_PREFIX || 'bull';
   }
 
   async getQueueMetrics(): Promise<QueueMetrics[]> {

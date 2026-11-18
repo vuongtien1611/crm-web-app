@@ -33,6 +33,7 @@ export class NotificationWorker implements OnModuleInit, OnModuleDestroy {
       {
         connection,
         concurrency: 5,
+        prefix: this.queueService.getPrefix(),
       },
     );
 
