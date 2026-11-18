@@ -570,9 +570,12 @@ async function runPaymentIntegrationTests() {
     await paymentsService.confirmPayment(String(unallocatedPayment.id), {}, String(boss.id));
 
     const allocatable = await paymentsService.findAllocatableInstallments(String(unallocatedPayment.id));
+    const targetInstallment = allocatable.installments.find(
+      (item) => String(item.installment_id) === String(createdPlan.installment.id),
+    );
     assert(
-      allocatable.installments.length === 1 &&
-        Number(allocatable.installments[0].remaining_amount) === expectedGrossDue,
+      Boolean(targetInstallment) &&
+        Number(targetInstallment?.remaining_amount) === expectedGrossDue,
       'PAYMENT-29: Newly created installment is offered for a confirmed, unallocated payment',
     );
     await paymentsService.allocateConfirmedPayment(
@@ -582,6 +585,17 @@ async function runPaymentIntegrationTests() {
         grossAllocatedAmount: expectedGrossDue,
       },
       String(boss.id),
+    );
+    const allocationsForPayment = await kysely.db
+      .selectFrom('payment_allocations')
+      .selectAll()
+      .where('payment_id', '=', unallocatedPayment.id)
+      .where('installment_id', '=', createdPlan.installment.id)
+      .execute();
+    assert(
+      allocationsForPayment.length === 1 &&
+        Number(allocationsForPayment[0].gross_allocated_amount) === expectedGrossDue,
+      'PAYMENT-29B: Exactly one allocation record exists without duplicate allocation',
     );
     const paidPlanInstallment = await kysely.db
       .selectFrom('payment_installments')

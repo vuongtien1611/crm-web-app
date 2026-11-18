@@ -22,13 +22,13 @@ async function runDealIntegrationTests() {
   let failed = 0;
 
   // Cleanup variables
-  let testLeadPotentialId: string;
-  let testLeadUnclassifiedId: string;
-  let testDealId: string;
-  let testDealId2: string;
-  let testAccountId: string;
-  let testSale1Id: string;
-  let testSale2Id: string;
+  let testLeadPotentialId: string | undefined;
+  let testLeadUnclassifiedId: string | undefined;
+  let testDealId!: string;
+  let testDealId2!: string;
+  let testAccountId: string | undefined;
+  let testSale1Id: string | undefined;
+  let testSale2Id: string | undefined;
 
   try {
     // 0. Setup Test Fixtures
@@ -85,13 +85,16 @@ async function runDealIntegrationTests() {
     // DEAL-01: Create Deal from POTENTIAL Lead
     // --------------------------------------------------
     try {
-      const result = await leadsService.convertToDeal(testLeadPotentialId, {
+      const result = await leadsService.convertToDeal(testLeadPotentialId!, {
         companyName: `Deal01 Corp ${Date.now()}`,
         taxCode: `TAX${Date.now()}`,
         contactName: 'John Deal',
         dealName: 'Enterprise Software License',
         expectedValue: 50000000,
       });
+
+      testDealId = String(result.deal.id);
+      testAccountId = String(result.account.id);
 
       if (
         result.deal &&
@@ -100,8 +103,6 @@ async function runDealIntegrationTests() {
         result.account &&
         result.contact
       ) {
-        testDealId = String(result.deal.id);
-        testAccountId = String(result.account.id);
         console.log('✅ PASS: DEAL-01: Create Deal from POTENTIAL Lead');
         passed++;
       } else {
@@ -188,7 +189,7 @@ async function runDealIntegrationTests() {
     try {
       // Create a temporary deal to test LOST
       const tempDeal = await dealsService.createDeal({
-        accountId: testAccountId,
+        accountId: testAccountId!,
         assignedSaleId: testSale1Id,
         dealName: 'Temp Lost Deal',
       });
@@ -209,7 +210,7 @@ async function runDealIntegrationTests() {
     // --------------------------------------------------
     try {
       const dealNoCloser = await dealsService.createDeal({
-        accountId: testAccountId,
+        accountId: testAccountId!,
         assignedSaleId: testSale1Id,
         dealName: 'No Closer Deal',
       });
@@ -229,7 +230,7 @@ async function runDealIntegrationTests() {
     // --------------------------------------------------
     // DEAL-08: WON creates DRAFT Order when no active order
     // --------------------------------------------------
-    let createdOrderId: string;
+    let createdOrderId!: string;
     try {
       const wonResult = await dealsService.markWon(testDealId);
       if (
@@ -255,7 +256,7 @@ async function runDealIntegrationTests() {
     try {
       // Create a second deal for same account
       const deal2 = await dealsService.createDeal({
-        accountId: testAccountId,
+        accountId: testAccountId!,
         assignedSaleId: testSale1Id,
         dealName: 'Second Deal Same Account',
         expectedValue: 30000000,

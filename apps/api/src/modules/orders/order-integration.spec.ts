@@ -25,14 +25,14 @@ async function runOrderIntegrationTests() {
   let failed = 0;
 
   // Cleanup tracking variables
-  let testSale1Id: string;
-  let testSale2Id: string;
-  let testLeadId: string;
-  let testDealId: string;
-  let testAccountId: string;
-  let testOrderId: string;
-  let testOrderItemId: string;
-  let testServiceId: string;
+  let testSale1Id: string | undefined;
+  let testSale2Id: string | undefined;
+  let testLeadId: string | undefined;
+  let testDealId: string | undefined;
+  let testAccountId: string | undefined;
+  let testOrderId: string | undefined;
+  let testOrderItemId: string | undefined;
+  let testServiceId: string | undefined;
 
   try {
     // 0. Setup Fixtures
@@ -259,7 +259,7 @@ async function runOrderIntegrationTests() {
     // --------------------------------------------------
     // ORDER-10: Add new service to existing Active Order creates new OrderItem
     // --------------------------------------------------
-    let item2Id: string;
+    let item2Id!: string;
     try {
       const item2 = await ordersService.addOrderItem(
         testOrderId,
@@ -666,7 +666,7 @@ async function runOrderIntegrationTests() {
     // --------------------------------------------------
     // ORDER-19: Create Change Request for approved item
     // --------------------------------------------------
-    let crId: string;
+    let crId!: string;
     try {
       const cr = await ordersService.createChangeRequest(
         testOrderItemId,
@@ -786,7 +786,7 @@ async function runOrderIntegrationTests() {
   } finally {
     // Cleanup fixtures
     try {
-      if (testAccountId) {
+      if (testAccountId && testOrderId && testOrderItemId) {
         await kysely.db.deleteFrom('audit_logs').where('entity_id', '=', testOrderId as any).execute();
         await kysely.db.deleteFrom('change_requests').where('order_item_id', '=', testOrderItemId as any).execute();
         await kysely.db.deleteFrom('order_item_requirements').where('order_item_id', '=', testOrderItemId as any).execute();
